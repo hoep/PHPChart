@@ -5,7 +5,7 @@
  * Diese Klasse ist für die Berechnung und Darstellung von Achsen im Diagramm zuständig.
  * Sie unterstützt verschiedene Achsentypen und Skalierungen.
  * 
- * @version 2.1
+ * @version 2.3
  */
 class ChartAxes {
     /**
@@ -426,10 +426,12 @@ class ChartAxes {
         // Berücksichtige benutzerdefinierte Offsets, wenn vorhanden
         $offsetY = isset($yAxis['offsetY']) ? $yAxis['offsetY'] : 0;
         
-        // Berechne Tick-Positionen
+        // Berechne Tick-Positionen (genau in der Mitte jeder Kategorie)
         for ($i = 0; $i < $categoryCount; $i++) {
             $label = $categories[$i];
-            $y = $chartArea['y'] + ($i + 0.5) * $categoryHeight; // Mitte der Kategorie
+            
+            // Berechnung der exakten Mitte der Kategorie
+            $y = $chartArea['y'] + ($i + 0.5) * $categoryHeight;
             
             $ticks[] = [
                 'value' => $i,
@@ -1097,4 +1099,3 @@ class ChartAxes {
         }
     }
 }
-?>

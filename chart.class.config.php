@@ -5,7 +5,7 @@
  * Diese Klasse verwaltet alle Konfigurationsoptionen und Standardwerte
  * für das Diagramm, Achsen, Serien und andere Elemente.
  * 
- * @version 1.2
+ * @version 2.0
  */
 class ChartConfig {
     /**
@@ -24,7 +24,7 @@ class ChartConfig {
         ],
         'background' => [           // Hintergrundeinstellungen
             'enabled' => true,
-            'color' => '#ffffff',
+            'color' => '#ffffff00',
             'borderRadius' => 0
         ],
         'grid' => [                 // Gittereinstellungen
@@ -35,11 +35,11 @@ class ChartConfig {
         ],
         'title' => [                // Titeleinstellungen
             'text' => '',
-            'enabled' => false,
+            'enabled' => true,
             'fontFamily' => 'Arial, Helvetica, sans-serif',
             'fontSize' => 18,
             'fontWeight' => 'bold',
-            'color' => '#333333',
+            'color' => '#e0e0e0',
             'align' => 'center',
             'offsetX' => 0,
             'offsetY' => 20
@@ -54,18 +54,64 @@ class ChartConfig {
             'fontFamily' => 'Arial, Helvetica, sans-serif',
             'fontSize' => 12,
             'fontWeight' => 'normal',
-            'color' => '#333333',
+            'color' => '#e0e0e0',
             'symbolSize' => 10,
             'symbolSpacing' => 5,
             'itemSpacing' => 20,
             'padding' => 10,
-            'background' => '#ffffff',
+            'background' => '#ffffff00',
             'borderRadius' => 0,
             'border' => [
                 'enabled' => false,
                 'color' => '#cccccc',
                 'width' => 1
             ]
+        ],
+        'radar' => [                // Standardeinstellungen für Radar-Diagramme
+            'grid' => [
+                'enabled' => true,
+                'color' => '#e0e0e0',
+                'width' => 1,
+                'dashArray' => '',
+                'levels' => 5       // Anzahl der konzentrischen Kreise
+            ],
+            'axes' => [
+                'labels' => [
+                    'enabled' => true,
+                    'color' => '#333333',
+                    'fontSize' => 12,
+                    'fontFamily' => 'Arial, Helvetica, sans-serif',
+                    'offset' => 10  // Abstand der Beschriftungen vom äußeren Rand
+                ]
+            ]
+        ],
+        'polar' => [                // Standardeinstellungen für Polar-Diagramme
+            'grid' => [
+                'enabled' => true,
+                'color' => '#e0e0e0',
+                'width' => 1,
+                'dashArray' => '',
+                'levels' => 5,      // Anzahl der konzentrischen Kreise
+                'angles' => 12,     // Anzahl der Winkellinien (standardmäßig 30-Grad-Schritte)
+                'labels' => [
+                    'enabled' => true,
+                    'color' => '#777777',
+                    'fontSize' => 10,
+                    'fontFamily' => 'Arial, Helvetica, sans-serif'
+                ],
+                'angleLabels' => [
+                    'enabled' => true,
+                    'color' => '#777777',
+                    'fontSize' => 10,
+                    'fontFamily' => 'Arial, Helvetica, sans-serif'
+                ]
+            ]
+        ],
+        'scatter' => [             // Standardeinstellungen für Scatter-Diagramme
+            'connectPoints' => false, // Punkte mit Linien verbinden
+            'lineColor' => '#999999', // Farbe der Verbindungslinien
+            'lineWidth' => 1,       // Breite der Verbindungslinien
+            'lineDashArray' => ''   // Strichmuster der Verbindungslinien
         ]
     ];
     
@@ -75,7 +121,7 @@ class ChartConfig {
      * @var array
      */
     private $defaultSeriesOptions = [
-        'type' => 'bar',            // Chart-Typ: bar, line, spline, area, pie, etc.
+        'type' => 'bar',            // Chart-Typ: bar, line, spline, area, pie, multipie, radar, polar, scatter, etc.
         'xAxisId' => 0,             // ID der zu verwendenden X-Achse
         'yAxisId' => 0,             // ID der zu verwendenden Y-Achse
         'color' => '',              // Farbe (automatisch, wenn leer)
@@ -109,7 +155,7 @@ class ChartConfig {
             'fontFamily' => 'Arial, Helvetica, sans-serif',
             'fontSize' => 11,
             'fontWeight' => 'normal',
-            'color' => '#333333',
+            'color' => '#e0e0e0',
             'format' => '{y}',      // Format: {y}, {x}, {percentage}
             'offsetX' => 0,
             'offsetY' => -15,
@@ -135,17 +181,43 @@ class ChartConfig {
         
         // Spezifische Optionen für Flächendiagramme
         'area' => [
+            'enabled' => true,      // Fläche anzeigen
             'strokeWidth' => 2,     // Linienbreite
             'fillOpacity' => 0.4    // Deckkraft der Füllung
         ],
         
         // Spezifische Optionen für Kreisdiagramme
         'pie' => [
+            'radius' => null,       // Radius (automatisch, wenn null)
             'innerRadius' => 0,     // Innerer Radius (0 für Pie, >0 für Donut)
             'startAngle' => 0,      // Startwinkel in Grad
             'endAngle' => 360,      // Endwinkel in Grad
             'padAngle' => 0,        // Abstandswinkel zwischen Segmenten
-            'cornerRadius' => 0     // Eckenradius der Segmente
+            'cornerRadius' => 0,    // Eckenradius der Segmente
+            'centerX' => null,      // X-Koordinate des Zentrums (automatisch, wenn null)
+            'centerY' => null,      // Y-Koordinate des Zentrums (automatisch, wenn null)
+            'colors' => [           // Standardfarben für Segmente
+                '#5BC9AD', '#DC5244', '#468DF3', '#A0A0A0', '#DDDDDD', 
+                '#90E1D2', '#E68C86', '#F8D871', '#7F7F7F', '#333438'
+            ]
+        ],
+        
+        // Spezifische Optionen für Multi-Pie/Donut-Diagramme
+        'multipie' => [
+            'group' => 'default',   // Gruppenname für dieses Diagramm
+            'type' => 'multipie',   // multipie oder multidonut
+            'title' => '',          // Titel für das Diagramm in der Gruppe
+            'titleHeight' => 30,    // Höhe des Titels
+            'titleOptions' => [     // Optionen für den Titel
+                'fontFamily' => 'Arial, Helvetica, sans-serif',
+                'fontSize' => 14,
+                'fontWeight' => 'bold',
+                'color' => '#333333'
+            ],
+            'layout' => 'auto',     // Layout-Typ (auto, custom)
+            'position' => null,     // Benutzerdefinierte Position {x, y, width, height}
+            'ringPosition' => null, // Position des Rings für Multi-Donut (0=innerster Ring)
+            'ringThickness' => null // Dicke des Rings für Multi-Donut
         ],
         
         // Spezifische Optionen für Bubble-Diagramme
@@ -153,6 +225,33 @@ class ChartConfig {
             'minSize' => 5,         // Minimale Blasengröße
             'maxSize' => 50,        // Maximale Blasengröße
             'sizeField' => 'size'   // Name des Feldes für die Größe
+        ],
+        
+        // Spezifische Optionen für Radar-Diagramme
+        'radar' => [
+            'area' => [
+                'enabled' => true,  // Fläche anzeigen
+                'fillOpacity' => 0.4 // Deckkraft der Füllung
+            ]
+        ],
+        
+        // Spezifische Optionen für Polar-Diagramme
+        'polar' => [
+            'area' => [
+                'enabled' => true,  // Fläche anzeigen
+                'fillOpacity' => 0.4 // Deckkraft der Füllung
+            ]
+        ],
+        
+        // Spezifische Optionen für Scatter-Diagramme
+        'scatter' => [
+            'connectPoints' => false, // Punkte mit Linien verbinden
+            'lineColor' => null,    // Farbe der Verbindungslinien (null = Serie Farbe)
+            'lineWidth' => 1,       // Breite der Verbindungslinien
+            'lineDashArray' => '',  // Strichmuster für Verbindungslinien
+            'points' => [],         // Individuelle Punkt-Definitionen
+            'minPointSize' => 3,    // Minimale Punktgröße
+            'maxPointSize' => 15    // Maximale Punktgröße
         ]
     ];
     
@@ -170,7 +269,7 @@ class ChartConfig {
             'fontFamily' => 'Arial, Helvetica, sans-serif',
             'fontSize' => 14,
             'fontWeight' => 'bold',
-            'color' => '#333333',
+            'color' => '#e0e0e0',
             'offsetX' => 0,
             'offsetY' => 35
         ],
@@ -186,7 +285,7 @@ class ChartConfig {
             'fontFamily' => 'Arial, Helvetica, sans-serif',
             'fontSize' => 12,
             'fontWeight' => 'normal',
-            'color' => '#333333',
+            'color' => '#e0e0e0',
             'rotation' => 0,        // Rotation in Grad
             'align' => 'center',    // left, center, right
             'format' => null,       // Benutzerdefiniertes Format
@@ -200,7 +299,7 @@ class ChartConfig {
         ],
         'ticks' => [
             'enabled' => true,      // Wichtig: Standardmäßig aktiviert
-            'color' => '#999999',
+            'color' => '#e0e0e0',
             'width' => 1,
             'size' => 6
         ],
@@ -226,7 +325,7 @@ class ChartConfig {
             'fontFamily' => 'Arial, Helvetica, sans-serif',
             'fontSize' => 14,
             'fontWeight' => 'bold',
-            'color' => '#333333',
+            'color' => '#e0e0e0',
             'offsetX' => -35,
             'offsetY' => 0,
             'rotation' => -90       // Rotation in Grad
@@ -241,7 +340,7 @@ class ChartConfig {
             'fontFamily' => 'Arial, Helvetica, sans-serif',
             'fontSize' => 12,
             'fontWeight' => 'normal',
-            'color' => '#333333',
+            'color' => '#e0e0e0',
             'align' => 'right',     // left, center, right
             'format' => null,       // Benutzerdefiniertes Format
             'prefix' => '',         // Präfix
@@ -256,7 +355,7 @@ class ChartConfig {
         ],
         'ticks' => [
             'enabled' => true,      // Wichtig: Standardmäßig aktiviert
-            'color' => '#999999',
+            'color' => '#e0e0e0',
             'width' => 1,
             'size' => 6
         ],
@@ -274,8 +373,8 @@ class ChartConfig {
      * @var array
      */
     private $defaultColors = [
-        '#4572A7', '#AA4643', '#89A54E', '#80699B', '#3D96AE', 
-        '#DB843D', '#92A8CD', '#A47D7C', '#B5CA92', '#5F9EB7'
+        '#5BC9AD', '#DC5244', '#468DF3', '#A0A0A0', '#DDDDDD', 
+        '#90E1D2', '#E68C86', '#F8D871', '#7F7F7F', '#333438'
     ];
     
     /**

@@ -5,8 +5,8 @@
  * Diese Klasse ermöglicht die Erstellung verschiedener Diagrammtypen mit
  * anpassbaren Optionen für Darstellung, Achsen, Legenden und mehr.
  * 
- * @author Claude
- * @version 1.4
+ * 
+ * @version 1.20
  */
 
 // Einbinden der benötigten Klassendateien
@@ -21,6 +21,9 @@ include_once('chart.class.piechart.php');
 include_once('chart.class.polarchart.php');
 include_once('chart.class.scatterchart.php');
 include_once('chart.class.waterfall.php');
+include_once('chart.class.bubble.php');
+include_once('chart.class.radar.php');
+include_once('chart.class.multipie.php');
 include_once('chart.class.legend.php');
 
 class PHPChart {
@@ -85,6 +88,16 @@ class PHPChart {
     private $hasHorizontalBars = false;
     
     /**
+     * @var bool Flag für Kreisdiagramme
+     */
+    private $hasPieCharts = false;
+    
+    /**
+     * @var bool Flag für Multi-Pie/Donut Diagramme
+     */
+    private $hasMultiPieCharts = false;
+    
+    /**
      * Konstruktor - Initialisiert die Basiskomponenten des Diagramms
      * 
      * @param array $config Optionale Konfigurationsparameter
@@ -141,6 +154,18 @@ class PHPChart {
         // Prüfen, ob es sich um horizontale Balken handelt
         if (isset($seriesOptions['bar']) && isset($seriesOptions['bar']['horizontal']) && $seriesOptions['bar']['horizontal']) {
             $this->hasHorizontalBars = true;
+        }
+        
+        // Prüfen, ob es sich um Pie-/Donut-Charts handelt
+        if (isset($seriesOptions['type']) && ($seriesOptions['type'] === 'pie')) {
+            $this->hasPieCharts = true;
+        }
+        
+        // Prüfen, ob es sich um Multi-Pie/Donut-Charts handelt
+        if (isset($seriesOptions['type']) && ($seriesOptions['type'] === 'multipie')) {
+            $this->hasMultiPieCharts = true;
+            // Multi-Pie/Donut Charts werden wie Pie-Charts behandelt (keine Achsen)
+            $this->hasPieCharts = true;
         }
         
         // Serie mit Optionen hinzufügen
@@ -213,25 +238,61 @@ class PHPChart {
         // Berechne das nutzbare Zeichengebiet nach Abzug der Ränder
         $chartArea = $this->calculateChartArea();
         
-        // Wenn keine Achsen definiert wurden, Standardachsen erstellen
-        if (empty($this->axes['x'])) {
-            $this->addXAxis();
-        }
-        if (empty($this->axes['y'])) {
-            $this->addYAxis();
+        // Für nicht-Pie/MultiPie-Charts: Achsen vorbereiten und rendern
+        if (!$this->hasPieChartsOnly()) {
+            // Wenn keine Achsen definiert wurden, Standardachsen erstellen
+            if (empty($this->axes['x'])) {
+                $this->addXAxis();
+            }
+            if (empty($this->axes['y'])) {
+                $this->addYAxis();
+            }
+            
+            // Bereite die Achsen vor
+            $this->prepareAxes($chartArea);
+            
+            // Rendere den Hintergrund und das Gitter
+            $this->renderBackground($chartArea);
+        } else {
+            // Für reine Pie/MultiPie-Charts nur den Hintergrund rendern ohne Gitter
+            if ($this->config['background']['enabled']) {
+                $this->svgOutput .= $this->chartSVG->createRect(
+                    0, 0, $this->config['width'], $this->config['height'],
+                    [
+                        'fill' => $this->config['background']['color'],
+                        'rx' => $this->config['background']['borderRadius'],
+                        'ry' => $this->config['background']['borderRadius']
+                    ]
+                );
+            }
         }
         
-        // Bereite die Achsen vor
-        $this->prepareAxes($chartArea);
-        
-        // Rendere den Hintergrund und das Gitter
-        $this->renderBackground($chartArea);
+        // Diagrammtitel rendern
+        if (isset($this->config['title']) && $this->config['title']['enabled'] && !empty($this->config['title']['text'])) {
+            $titleX = $this->config['width'] / 2 + (isset($this->config['title']['offsetX']) ? $this->config['title']['offsetX'] : 0);
+            $titleY = $this->config['margin']['top'] / 2 + (isset($this->config['title']['offsetY']) ? $this->config['title']['offsetY'] : 0);
+            
+            $this->svgOutput .= $this->chartSVG->createText(
+                $titleX,
+                $titleY,
+                $this->config['title']['text'],
+                [
+                    'fontFamily' => isset($this->config['title']['fontFamily']) ? $this->config['title']['fontFamily'] : 'Arial, Helvetica, sans-serif',
+                    'fontSize' => isset($this->config['title']['fontSize']) ? $this->config['title']['fontSize'] : 18,
+                    'fontWeight' => isset($this->config['title']['fontWeight']) ? $this->config['title']['fontWeight'] : 'bold',
+                    'fill' => isset($this->config['title']['color']) ? $this->config['title']['color'] : '#333333',
+                    'textAnchor' => 'middle'
+                ]
+            );
+        }
         
         // Rendere die Datenreihen basierend auf ihrem Typ
         $this->renderSeries($chartArea);
         
-        // Rendere die Achsen
-        $this->renderAxes();
+        // Rendere die Achsen nur für nicht-Pie/MultiPie-Charts
+        if (!$this->hasPieChartsOnly()) {
+            $this->renderAxes();
+        }
         
         // Rendere die Legende, falls aktiviert
         if ($this->config['legend']['enabled']) {
@@ -245,12 +306,32 @@ class PHPChart {
     }
     
     /**
+     * Überprüft, ob das Diagramm nur aus Pie-/MultiPie-Charts besteht
+     * 
+     * @return bool True, wenn nur Pie-/MultiPie-Charts vorhanden sind
+     */
+    private function hasPieChartsOnly() {
+        if (!$this->hasPieCharts) {
+            return false;
+        }
+        
+        foreach ($this->series as $seriesOptions) {
+            if (isset($seriesOptions['type']) && 
+                $seriesOptions['type'] !== 'pie' && 
+                $seriesOptions['type'] !== 'multipie') {
+                return false;
+            }
+        }
+        
+        return true;
+    }
+    
+    /**
      * Berechnet den verfügbaren Zeichenbereich unter Berücksichtigung von Rändern und Achsen
      * 
      * @return array Daten zum Zeichenbereich (x, y, width, height)
      */
     private function calculateChartArea() {
-        // Implementierung folgt
         $margin = $this->config['margin'];
         
         // Standardzeichenbereich mit Rändern
@@ -362,6 +443,18 @@ class PHPChart {
                     );
                     break;
                     
+                case 'area':
+                    $areaChart = new ChartAreaChart();
+                    $this->svgOutput .= $areaChart->render(
+                        $seriesGroup,
+                        $this->xValues,
+                        $this->yValues,
+                        $this->axes,
+                        $chartArea,
+                        $this->config
+                    );
+                    break;
+                    
                 case 'waterfall':
                     $waterfallChart = new ChartWaterfallChart();
                     $this->svgOutput .= $waterfallChart->render(
@@ -374,7 +467,97 @@ class PHPChart {
                     );
                     break;
                     
-                // Weitere Chart-Typen werden später implementiert
+                case 'pie':
+                    // Für Pie-Charts den gesamten verfügbaren Platz nutzen
+                    $pieChartArea = $this->hasPieChartsOnly() 
+                        ? [
+                            'x' => $this->config['margin']['left'],
+                            'y' => $this->config['margin']['top'],
+                            'width' => $this->config['width'] - $this->config['margin']['left'] - $this->config['margin']['right'],
+                            'height' => $this->config['height'] - $this->config['margin']['top'] - $this->config['margin']['bottom']
+                          ]
+                        : $chartArea;
+                    
+                    $pieChart = new ChartPieChart();
+                    $this->svgOutput .= $pieChart->render(
+                        $seriesGroup,
+                        $this->xValues,
+                        $this->yValues,
+                        null,  // Keine Achsen für Pie-Charts
+                        $pieChartArea,
+                        $this->config
+                    );
+                    break;
+                
+                case 'multipie':
+                    // Für Multi-Pie Charts den gesamten verfügbaren Platz nutzen
+                    $multiPieChartArea = $this->hasPieChartsOnly() 
+                        ? [
+                            'x' => $this->config['margin']['left'],
+                            'y' => $this->config['margin']['top'],
+                            'width' => $this->config['width'] - $this->config['margin']['left'] - $this->config['margin']['right'],
+                            'height' => $this->config['height'] - $this->config['margin']['top'] - $this->config['margin']['bottom']
+                          ]
+                        : $chartArea;
+                    
+                    $multiPieChart = new ChartMultiPieChart();
+                    $this->svgOutput .= $multiPieChart->render(
+                        $seriesGroup,
+                        $this->xValues,
+                        $this->yValues,
+                        null,  // Keine Achsen für Multi-Pie Charts
+                        $multiPieChartArea,
+                        $this->config
+                    );
+                    break;
+                    
+                case 'bubble':
+                    $bubbleChart = new ChartBubbleChart();
+                    $this->svgOutput .= $bubbleChart->render(
+                        $seriesGroup,
+                        $this->xValues,
+                        $this->yValues,
+                        $this->axes,
+                        $chartArea,
+                        $this->config
+                    );
+                    break;
+                    
+                case 'polar':
+                    $polarChart = new ChartPolarChart();
+                    $this->svgOutput .= $polarChart->render(
+                        $seriesGroup,
+                        $this->xValues,
+                        $this->yValues,
+                        $this->axes,
+                        $chartArea,
+                        $this->config
+                    );
+                    break;
+                
+                case 'scatter':
+                    $scatterChart = new ChartScatterChart();
+                    $this->svgOutput .= $scatterChart->render(
+                        $seriesGroup,
+                        $this->xValues,
+                        $this->yValues,
+                        $this->axes,
+                        $chartArea,
+                        $this->config
+                    );
+                    break;
+                
+                case 'radar':
+                    $radarChart = new ChartRadarChart();
+                    $this->svgOutput .= $radarChart->render(
+                        $seriesGroup,
+                        $this->xValues,
+                        $this->yValues,
+                        $this->axes,
+                        $chartArea,
+                        $this->config
+                    );
+                    break;
                 
                 default:
                     // Unbekannter Chart-Typ - ignorieren oder Fehler werfen
@@ -436,6 +619,17 @@ class PHPChart {
      */
     public function saveToFile($filename) {
         return file_put_contents($filename, $this->svgOutput) !== false;
+    }
+    
+    /**
+     * Erzeugt eine String-Repräsentation des Diagramms
+     *
+     * Diese Methode wird aufgerufen, wenn das Objekt als String verwendet wird.
+     * 
+     * @return string SVG-Code des Diagramms
+     */
+    public function __toString() {
+        return $this->svgOutput;
     }
 }
 ?>

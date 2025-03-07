@@ -5,7 +5,7 @@
  * Diese Klasse ist für die Erstellung und Darstellung von Balkendiagrammen zuständig,
  * einschließlich vertikaler und horizontaler Balken sowie gestapelter Varianten.
  * 
- * @version 2.2
+ * @version 2.7
  */
 class ChartBarChart {
     /**
@@ -304,24 +304,38 @@ class ChartBarChart {
         $yAxis = $axes['y'][$yAxisId];
         
         // Bei horizontalen Balken sind Y-Werte die Kategorien
-        // Wir prüfen, ob Kategorien direkt in der Y-Achse angegeben sind
-        $categories = isset($yAxis['categories']) ? $yAxis['categories'] : [];
-        
-        // Falls keine Kategorien definiert sind, versuchen wir sie aus den Daten zu extrahieren
-        if (empty($categories)) {
-            // Versuche, maximale Anzahl von Kategorien zu ermitteln
-            $maxCategories = 0;
+        // Wir prüfen zunächst, ob Kategorien direkt in der Y-Achse angegeben sind
+        if (isset($yAxis['categories']) && !empty($yAxis['categories'])) {
+            $categories = $yAxis['categories'];
+        } else {
+            // Falls keine Kategorien direkt angegeben sind, versuche aus den Y-Werten zu ermitteln
+            $allCategories = [];
             foreach ($yValues as $seriesY) {
-                $maxCategories = max($maxCategories, count($seriesY));
+                foreach ($seriesY as $category) {
+                    if (!in_array($category, $allCategories) && !empty($category)) {
+                        $allCategories[] = $category;
+                    }
+                }
             }
             
-            // Erstelle Standardkategorien
-            for ($i = 0; $i < $maxCategories; $i++) {
-                $categories[] = "Kategorie " . ($i + 1);
+            if (!empty($allCategories)) {
+                $categories = $allCategories;
+            } else {
+                // Fallback: Bestimme die maximale Anzahl von Werten in einer Serie und erstelle
+                // entsprechend viele Standardkategorien
+                $maxCount = 0;
+                foreach ($yValues as $seriesY) {
+                    $maxCount = max($maxCount, count($seriesY));
+                }
+                
+                $categories = [];
+                for ($i = 0; $i < $maxCount; $i++) {
+                    $categories[] = "Kategorie " . ($i + 1);
+                }
             }
         }
         
-        // Sicherheitscheck - falls immer noch keine Kategorien da sind
+        // Sicherheitscheck - falls keine Kategorien da sind
         if (empty($categories)) {
             return $output;
         }
@@ -330,21 +344,21 @@ class ChartBarChart {
         $categoryCount = count($categories);
         $categoryHeight = $chartArea['height'] / $categoryCount;
         
-        // Höhe für alle Stapelgruppen (80% der Kategoriehöhe)
-        $allStacksHeight = $categoryHeight * 0.8;
+        // Verfügbarer Platz pro Kategorie (80% der Kategoriehöhe)
+        $availableHeight = $categoryHeight * 0.8;
         
-        // Höhe für eine Stapelgruppe
-        $stackGroupHeight = $allStacksHeight / $stackGroupCount;
+        // Höhe für jede Stapelgruppe
+        $stackGroupHeight = $availableHeight / $stackGroupCount;
         
-        // Abstand zwischen Stapelgruppen
-        $stackGroupSpacing = $stackGroupHeight * 0.2;
+        // Zwischenraum zwischen Stapelgruppen (10% der Stapelgruppenhöhe)
+        $stackGroupSpacing = $stackGroupHeight * 0.1;
         
-        // Tatsächliche Balkenhöhe
+        // Tatsächliche Balkenhöhe (90% der Stapelgruppenhöhe)
         $barHeight = $stackGroupHeight - $stackGroupSpacing;
         
         // Überprüfe benutzerdefinierte Höhe
         if (isset($firstSeries['bar']) && isset($firstSeries['bar']['width']) && $firstSeries['bar']['width'] !== null) {
-            $barHeight = min($firstSeries['bar']['width'], $stackGroupHeight * 0.8);
+            $barHeight = min($firstSeries['bar']['width'], $barHeight);
         }
         
         // Finde die Position der Nulllinie auf der X-Achse
@@ -353,11 +367,28 @@ class ChartBarChart {
         // Berechne die Stapel für jede Kategorie
         $stacks = [];
         foreach ($series as $seriesName => $seriesOptions) {
+            // X-Werte holen (repräsentieren die Balkenlängen)
+            $seriesX = isset($xValues[$seriesName]) ? $xValues[$seriesName] : [];
+            
+            // Y-Werte holen (repräsentieren die Kategorien)
             $seriesY = isset($yValues[$seriesName]) ? $yValues[$seriesName] : [];
             
-            foreach ($seriesY as $idx => $value) {
-                if (!isset($stacks[$idx])) {
-                    $stacks[$idx] = [
+            // Für jede Kategorie in den Y-Werten
+            foreach ($seriesY as $idx => $category) {
+                // Wenn keine entsprechenden X-Wert vorhanden ist, überspringe
+                if (!isset($seriesX[$idx])) continue;
+                
+                // Finde den Index der Kategorie im categories-Array
+                $categoryIndex = array_search($category, $categories);
+                if ($categoryIndex === false) continue;
+                
+                // X-Wert für diese Kategorie (Balkenlänge)
+                $value = $seriesX[$idx];
+                if (!is_numeric($value)) continue;
+                
+                // Initialisiere den Stack für diese Kategorie falls noch nicht vorhanden
+                if (!isset($stacks[$categoryIndex])) {
+                    $stacks[$categoryIndex] = [
                         'positive' => 0,  // Summe positiver Werte
                         'negative' => 0,  // Summe negativer Werte
                         'items' => []
@@ -365,37 +396,36 @@ class ChartBarChart {
                 }
                 
                 // Negative und positive Werte separat stapeln
-                if (is_numeric($value)) {
-                    if ($value >= 0) {
-                        $stackBase = $stacks[$idx]['positive'];
-                        $stackEnd = $stackBase + $value;
-                        $stacks[$idx]['positive'] = $stackEnd;
-                    } else {
-                        $stackBase = $stacks[$idx]['negative'];
-                        $stackEnd = $stackBase + $value;
-                        $stacks[$idx]['negative'] = $stackEnd;
-                    }
-                    
-                    $stacks[$idx]['items'][] = [
-                        'seriesName' => $seriesName,
-                        'value' => $value,
-                        'stackBase' => $stackBase,
-                        'stackEnd' => $stackEnd
-                    ];
+                if ($value >= 0) {
+                    $stackBase = $stacks[$categoryIndex]['positive'];
+                    $stackEnd = $stackBase + $value;
+                    $stacks[$categoryIndex]['positive'] = $stackEnd;
+                } else {
+                    $stackBase = $stacks[$categoryIndex]['negative'];
+                    $stackEnd = $stackBase + $value;
+                    $stacks[$categoryIndex]['negative'] = $stackEnd;
                 }
+                
+                $stacks[$categoryIndex]['items'][] = [
+                    'seriesName' => $seriesName,
+                    'value' => $value,
+                    'stackBase' => $stackBase,
+                    'stackEnd' => $stackEnd
+                ];
             }
         }
         
         // Rendere jeden Stapel
-        foreach ($stacks as $idx => $stack) {
+        foreach ($stacks as $categoryIndex => $stack) {
             // Überprüfe, ob der Index im gültigen Bereich liegt
-            if ($idx >= $categoryCount) continue;
+            if ($categoryIndex >= $categoryCount) continue;
             
-            // Bestimme die Y-Position des Balkens (Mitte der Kategorie)
-            $categoryCenter = $chartArea['y'] + ($idx + 0.5) * $categoryHeight;
+            // Berechne die Mitte der Kategorie
+            $categoryCenter = $chartArea['y'] + ($categoryIndex + 0.5) * $categoryHeight;
             
-            // Position basierend auf Stapelgruppe
-            $y = $categoryCenter - ($allStacksHeight / 2) + ($stackGroupIndex * $stackGroupHeight) + ($stackGroupSpacing / 2);
+            // Berechne die Y-Position für die aktuelle Stapelgruppe
+            // Beginne oben in der Kategorie und verteile die Stapelgruppen von oben nach unten
+            $y = $categoryCenter - ($availableHeight / 2) + ($stackGroupIndex * $stackGroupHeight) + ($stackGroupSpacing / 2);
             
             // Rendere jeden Balken im Stapel
             foreach ($stack['items'] as $item) {

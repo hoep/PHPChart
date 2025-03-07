@@ -5,7 +5,7 @@
  * Diese Klasse ist für die Erstellung und Darstellung von Liniendiagrammen zuständig,
  * einschließlich normaler Linien, Splines und gestufter Linien.
  * 
- * @version 1.0
+ * @version 1.2
  */
 class ChartLineChart {
     /**
@@ -94,6 +94,8 @@ class ChartLineChart {
         
         // Sammele die Punkte für die Linie
         $points = [];
+        $validYValues = []; // Für spätere Verwendung bei Punkten und Labels
+        
         foreach ($seriesY as $idx => $yValue) {
             if (!isset($seriesX[$idx])) continue;
             $xValue = $seriesX[$idx];
@@ -115,7 +117,8 @@ class ChartLineChart {
             // Y-Koordinate berechnen
             $y = $this->axes->convertYValueToCoordinate($yValue, $yAxis, $chartArea);
             
-            $points[] = [$x, $y];
+            $points[] = [$x, $y, $yValue]; // Speichere den Y-Wert für Farbschwellen
+            $validYValues[] = $yValue;
         }
         
         // Wenn keine Punkte vorhanden sind, nichts rendern
@@ -130,28 +133,122 @@ class ChartLineChart {
         $lineColor = !empty($seriesOptions['color']) ? $seriesOptions['color'] : '#000000';
         $dashArray = isset($seriesOptions['line']) && isset($seriesOptions['line']['dashArray']) ? $seriesOptions['line']['dashArray'] : '';
         
-        // Linie rendern
-        $output .= $this->svg->createPolyline(
-            $points,
-            [
-                'fill' => 'none',
-                'stroke' => $lineColor,
-                'strokeWidth' => $lineWidth,
-                'strokeDasharray' => $dashArray
-            ]
-        );
+        // Prüfe, ob farbliche Segmentierung basierend auf Y-Werten verwendet werden soll
+        $useColorThresholds = isset($seriesOptions['line']) && isset($seriesOptions['line']['colorThresholds']) && is_array($seriesOptions['line']['colorThresholds']);
+        
+        if ($useColorThresholds) {
+            // Segmentierte Linie mit verschiedenen Farben basierend auf Y-Werten
+            $output .= $this->renderSegmentedLine($points, $seriesOptions, $lineWidth, $dashArray);
+        } else {
+            // Standardmäßige einfarbige Linie rendern
+            $polylinePoints = [];
+            foreach ($points as $point) {
+                $polylinePoints[] = [$point[0], $point[1]];
+            }
+            
+            $output .= $this->svg->createPolyline(
+                $polylinePoints,
+                [
+                    'fill' => 'none',
+                    'stroke' => $lineColor,
+                    'strokeWidth' => $lineWidth,
+                    'strokeDasharray' => $dashArray
+                ]
+            );
+        }
         
         // Punkte rendern, falls aktiviert
         if (isset($seriesOptions['point']) && isset($seriesOptions['point']['enabled']) && $seriesOptions['point']['enabled']) {
-            $output .= $this->renderPoints($points, $seriesOptions, $seriesY);
+            $pointsWithoutYValues = array_map(function($point) {
+                return [$point[0], $point[1]];
+            }, $points);
+            $output .= $this->renderPoints($pointsWithoutYValues, $seriesOptions, $validYValues);
         }
         
         // Datenwertbeschriftungen rendern, falls aktiviert
         if (isset($seriesOptions['dataLabels']) && isset($seriesOptions['dataLabels']['enabled']) && $seriesOptions['dataLabels']['enabled']) {
-            $output .= $this->renderDataLabels($points, $seriesOptions, $seriesY);
+            $pointsWithoutYValues = array_map(function($point) {
+                return [$point[0], $point[1]];
+            }, $points);
+            $output .= $this->renderDataLabels($pointsWithoutYValues, $seriesOptions, $validYValues);
         }
         
         return $output;
+    }
+    
+    /**
+     * Rendert eine Linie mit farbigen Segmenten basierend auf Y-Werten
+     * 
+     * @param array $points Array mit Punkten als [x, y, yValue]
+     * @param array $seriesOptions Optionen für die Serie
+     * @param float $lineWidth Breite der Linie
+     * @param string $dashArray Strichmuster (falls vorhanden)
+     * @return string SVG-Elemente der segmentierten Linie
+     */
+    private function renderSegmentedLine($points, $seriesOptions, $lineWidth, $dashArray) {
+        $output = '';
+        $colorThresholds = $seriesOptions['line']['colorThresholds'];
+        
+        // Sortiere die Schwellenwerte nach aufsteigend
+        usort($colorThresholds, function($a, $b) {
+            return $a['value'] <=> $b['value'];
+        });
+        
+        // Standardfarbe für Werte unter dem niedrigsten Schwellenwert
+        $defaultColor = !empty($seriesOptions['color']) ? $seriesOptions['color'] : '#000000';
+        
+        // Rendere die Liniensegmente
+        for ($i = 0; $i < count($points) - 1; $i++) {
+            $startPoint = $points[$i];
+            $endPoint = $points[$i + 1];
+            $startValue = $startPoint[2];
+            $endValue = $endPoint[2];
+            
+            // Bestimme die Farbe basierend auf dem Y-Wert
+            $color = $this->getColorForValue($startValue, $colorThresholds, $defaultColor);
+            
+            // Erstelle das Liniensegment
+            $output .= $this->svg->createLine(
+                $startPoint[0],
+                $startPoint[1],
+                $endPoint[0],
+                $endPoint[1],
+                [
+                    'stroke' => $color,
+                    'strokeWidth' => $lineWidth,
+                    'strokeDasharray' => $dashArray
+                ]
+            );
+        }
+        
+        return $output;
+    }
+    
+    /**
+     * Bestimmt die Farbe für einen Wert anhand der definierten Schwellenwerte
+     * 
+     * @param float $value Der zu prüfende Wert
+     * @param array $thresholds Array mit Schwellenwerten und Farben
+     * @param string $defaultColor Standardfarbe, falls kein Schwellenwert passt
+     * @return string Farbcode (Hex oder RGB)
+     */
+    private function getColorForValue($value, $thresholds, $defaultColor) {
+        $color = $defaultColor; // Standardwert
+        
+        // Finde die passende Farbe basierend auf den Schwellenwerten
+        foreach ($thresholds as $threshold) {
+            if ($value <= $threshold['value']) {
+                return $threshold['color'];
+            }
+        }
+        
+        // Wenn kein Schwellenwert passt, verwende die Farbe des höchsten Schwellenwerts
+        if (!empty($thresholds)) {
+            $highestThreshold = end($thresholds);
+            return $highestThreshold['color'];
+        }
+        
+        return $color;
     }
     
     /**
@@ -185,6 +282,7 @@ class ChartLineChart {
         $points = [];
         $prevX = null;
         $prevY = null;
+        $validYValues = []; // Für spätere Verwendung bei Punkten und Labels
         
         foreach ($seriesY as $idx => $yValue) {
             if (!isset($seriesX[$idx])) continue;
@@ -209,10 +307,11 @@ class ChartLineChart {
             
             // Bei gestufter Linie müssen wir einen zusätzlichen Punkt einfügen
             if ($prevX !== null && $prevY !== null) {
-                $points[] = [$x, $prevY]; // Horizontale Linie
+                $points[] = [$x, $prevY, $validYValues[count($validYValues)-1]]; // Horizontale Linie mit dem letzten Y-Wert
             }
             
-            $points[] = [$x, $y];
+            $points[] = [$x, $y, $yValue];
+            $validYValues[] = $yValue;
             $prevX = $x;
             $prevY = $y;
         }
@@ -229,16 +328,29 @@ class ChartLineChart {
         $lineColor = !empty($seriesOptions['color']) ? $seriesOptions['color'] : '#000000';
         $dashArray = isset($seriesOptions['line']) && isset($seriesOptions['line']['dashArray']) ? $seriesOptions['line']['dashArray'] : '';
         
-        // Linie rendern
-        $output .= $this->svg->createPolyline(
-            $points,
-            [
-                'fill' => 'none',
-                'stroke' => $lineColor,
-                'strokeWidth' => $lineWidth,
-                'strokeDasharray' => $dashArray
-            ]
-        );
+        // Prüfe, ob farbliche Segmentierung basierend auf Y-Werten verwendet werden soll
+        $useColorThresholds = isset($seriesOptions['line']) && isset($seriesOptions['line']['colorThresholds']) && is_array($seriesOptions['line']['colorThresholds']);
+        
+        if ($useColorThresholds) {
+            // Segmentierte Linie mit verschiedenen Farben basierend auf Y-Werten
+            $output .= $this->renderSegmentedLine($points, $seriesOptions, $lineWidth, $dashArray);
+        } else {
+            // Standardmäßige einfarbige Linie rendern
+            $polylinePoints = [];
+            foreach ($points as $point) {
+                $polylinePoints[] = [$point[0], $point[1]];
+            }
+            
+            $output .= $this->svg->createPolyline(
+                $polylinePoints,
+                [
+                    'fill' => 'none',
+                    'stroke' => $lineColor,
+                    'strokeWidth' => $lineWidth,
+                    'strokeDasharray' => $dashArray
+                ]
+            );
+        }
         
         // Punkte rendern, falls aktiviert
         if (isset($seriesOptions['point']) && isset($seriesOptions['point']['enabled']) && $seriesOptions['point']['enabled']) {
@@ -261,7 +373,7 @@ class ChartLineChart {
                 $dataPoints[] = [$x, $y];
             }
             
-            $output .= $this->renderPoints($dataPoints, $seriesOptions, $seriesY);
+            $output .= $this->renderPoints($dataPoints, $seriesOptions, $validYValues);
         }
         
         // Datenwertbeschriftungen rendern, falls aktiviert
@@ -322,6 +434,8 @@ class ChartLineChart {
         
         // Sammele die Punkte für die Spline
         $points = [];
+        $validYValues = []; // Für spätere Verwendung bei Punkten und Labels
+        
         foreach ($seriesY as $idx => $yValue) {
             if (!isset($seriesX[$idx])) continue;
             $xValue = $seriesX[$idx];
@@ -343,7 +457,8 @@ class ChartLineChart {
             // Y-Koordinate berechnen
             $y = $this->axes->convertYValueToCoordinate($yValue, $yAxis, $chartArea);
             
-            $points[] = [$x, $y];
+            $points[] = [$x, $y, $yValue];
+            $validYValues[] = $yValue;
         }
         
         // Wenn weniger als 2 Punkte vorhanden sind, verwende normale Linie
@@ -358,28 +473,123 @@ class ChartLineChart {
         $lineColor = !empty($seriesOptions['color']) ? $seriesOptions['color'] : '#000000';
         $dashArray = isset($seriesOptions['line']) && isset($seriesOptions['line']['dashArray']) ? $seriesOptions['line']['dashArray'] : '';
         
-        // SVG-Pfad für die Spline erstellen
-        $path = $this->createSplinePath($points);
+        // Spline-Tension (Biegungsgrad) 0 bis 1
+        $tension = isset($seriesOptions['line']) && isset($seriesOptions['line']['tension']) ? 
+                 $seriesOptions['line']['tension'] : 0.5;
         
-        // Spline rendern
-        $output .= $this->svg->createPath(
-            $path,
-            [
-                'fill' => 'none',
-                'stroke' => $lineColor,
-                'strokeWidth' => $lineWidth,
-                'strokeDasharray' => $dashArray
-            ]
-        );
+        // Prüfe, ob farbliche Segmentierung basierend auf Y-Werten verwendet werden soll
+        $useColorThresholds = isset($seriesOptions['line']) && isset($seriesOptions['line']['colorThresholds']) && is_array($seriesOptions['line']['colorThresholds']);
+        
+        if ($useColorThresholds) {
+            // Bei Splines ist die Segmentierung komplexer - wir müssen für jeden Abschnitt einen separaten Pfad erstellen
+            $output .= $this->renderSegmentedSpline($points, $seriesOptions, $lineWidth, $dashArray, $tension);
+        } else {
+            // Standardmäßige einfarbige Spline rendern
+            $pointsWithoutYValues = array_map(function($point) {
+                return [$point[0], $point[1]];
+            }, $points);
+            
+            // SVG-Pfad für die Spline erstellen
+            $path = $this->createSplinePath($pointsWithoutYValues, $tension);
+            
+            // Spline rendern
+            $output .= $this->svg->createPath(
+                $path,
+                [
+                    'fill' => 'none',
+                    'stroke' => $lineColor,
+                    'strokeWidth' => $lineWidth,
+                    'strokeDasharray' => $dashArray
+                ]
+            );
+        }
         
         // Punkte rendern, falls aktiviert
         if (isset($seriesOptions['point']) && isset($seriesOptions['point']['enabled']) && $seriesOptions['point']['enabled']) {
-            $output .= $this->renderPoints($points, $seriesOptions, $seriesY);
+            $pointsWithoutYValues = array_map(function($point) {
+                return [$point[0], $point[1]];
+            }, $points);
+            $output .= $this->renderPoints($pointsWithoutYValues, $seriesOptions, $validYValues);
         }
         
         // Datenwertbeschriftungen rendern, falls aktiviert
         if (isset($seriesOptions['dataLabels']) && isset($seriesOptions['dataLabels']['enabled']) && $seriesOptions['dataLabels']['enabled']) {
-            $output .= $this->renderDataLabels($points, $seriesOptions, $seriesY);
+            $pointsWithoutYValues = array_map(function($point) {
+                return [$point[0], $point[1]];
+            }, $points);
+            $output .= $this->renderDataLabels($pointsWithoutYValues, $seriesOptions, $validYValues);
+        }
+        
+        return $output;
+    }
+    
+    /**
+     * Rendert eine Spline-Kurve mit farbigen Segmenten basierend auf Y-Werten
+     * 
+     * @param array $points Array mit Punkten als [x, y, yValue]
+     * @param array $seriesOptions Optionen für die Serie
+     * @param float $lineWidth Breite der Linie
+     * @param string $dashArray Strichmuster (falls vorhanden)
+     * @param float $tension Spline-Spannung (0-1)
+     * @return string SVG-Elemente der segmentierten Spline
+     */
+    private function renderSegmentedSpline($points, $seriesOptions, $lineWidth, $dashArray, $tension = 0.5) {
+        $output = '';
+        $colorThresholds = $seriesOptions['line']['colorThresholds'];
+        
+        // Sortiere die Schwellenwerte nach aufsteigend
+        usort($colorThresholds, function($a, $b) {
+            return $a['value'] <=> $b['value'];
+        });
+        
+        // Standardfarbe für Werte unter dem niedrigsten Schwellenwert
+        $defaultColor = !empty($seriesOptions['color']) ? $seriesOptions['color'] : '#000000';
+        
+        // Da wir die Spline nicht so einfach segmentieren können wie eine gerade Linie,
+        // erstellen wir für jedes Segment von Punkt zu Punkt eine eigene Spline
+        for ($i = 0; $i < count($points) - 1; $i++) {
+            $segmentPoints = [$points[$i], $points[$i+1]];
+            $yValue = $points[$i][2]; // Verwende den Y-Wert des Startpunkts
+            
+            // Bestimme die Farbe basierend auf dem Y-Wert
+            $color = $this->getColorForValue($yValue, $colorThresholds, $defaultColor);
+            
+            // Für zwei Punkte können wir eine einfache Linie verwenden
+            if (count($segmentPoints) == 2) {
+                $startPoint = $segmentPoints[0];
+                $endPoint = $segmentPoints[1];
+                
+                $output .= $this->svg->createLine(
+                    $startPoint[0],
+                    $startPoint[1],
+                    $endPoint[0],
+                    $endPoint[1],
+                    [
+                        'stroke' => $color,
+                        'strokeWidth' => $lineWidth,
+                        'strokeDasharray' => $dashArray
+                    ]
+                );
+            } else {
+                // Für mehr als zwei Punkte müssen wir eine Spline erstellen
+                $pointsWithoutYValues = array_map(function($point) {
+                    return [$point[0], $point[1]];
+                }, $segmentPoints);
+                
+                // SVG-Pfad für die Segment-Spline erstellen
+                $path = $this->createSplinePath($pointsWithoutYValues, $tension);
+                
+                // Segment-Spline rendern
+                $output .= $this->svg->createPath(
+                    $path,
+                    [
+                        'fill' => 'none',
+                        'stroke' => $color,
+                        'strokeWidth' => $lineWidth,
+                        'strokeDasharray' => $dashArray
+                    ]
+                );
+            }
         }
         
         return $output;
@@ -389,9 +599,10 @@ class ChartLineChart {
      * Erstellt einen SVG-Pfad für eine Spline-Kurve
      * 
      * @param array $points Array mit Punkten als [x, y]-Arrays
+     * @param float $tension Spannungsfaktor für die Kurve (0-1, 0=gerade Linie, 1=volle Krümmung)
      * @return string SVG-Pfad-Daten
      */
-    private function createSplinePath($points) {
+    private function createSplinePath($points, $tension = 0.5) {
         $path = '';
         $n = count($points);
         
@@ -404,6 +615,13 @@ class ChartLineChart {
             // Bei nur zwei Punkten zeichne eine gerade Linie
             $path .= ' L' . $points[1][0] . ',' . $points[1][1];
         } else {
+            // Spannungsfaktor begrenzen (0 bis 1)
+            $tension = max(0, min(1, $tension));
+            // Faktor, der die Länge der Tangenten beeinflusst
+            // Bei tension=0 sind die Tangenten 0 (gerade Linie)
+            // Bei tension=1 sind die Tangenten etwa 1/3 der Strecke zum nächsten Punkt
+            $factor = $tension / 3;
+            
             // Berechne Kontrollpunkte für den kubischen Spline
             for ($i = 0; $i < $n - 1; $i++) {
                 $x1 = $points[$i][0];
@@ -414,22 +632,22 @@ class ChartLineChart {
                 // Bestimme die Kontrollpunkte für die kubische Bézierkurve
                 if ($i === 0) {
                     // Erster Punkt
-                    $cp1x = $x1 + ($x2 - $x1) / 3;
-                    $cp1y = $y1 + ($y2 - $y1) / 3;
+                    $cp1x = $x1 + ($x2 - $x1) * $factor;
+                    $cp1y = $y1 + ($y2 - $y1) * $factor;
                 } else {
                     // Verwende den vorherigen Punkt zur Berechnung
-                    $cp1x = $x1 + ($x2 - $points[$i - 1][0]) / 3;
-                    $cp1y = $y1 + ($y2 - $points[$i - 1][1]) / 3;
+                    $cp1x = $x1 + ($x2 - $points[$i - 1][0]) * $factor;
+                    $cp1y = $y1 + ($y2 - $points[$i - 1][1]) * $factor;
                 }
                 
                 if ($i === $n - 2) {
                     // Letzter Punkt
-                    $cp2x = $x2 - ($x2 - $x1) / 3;
-                    $cp2y = $y2 - ($y2 - $y1) / 3;
+                    $cp2x = $x2 - ($x2 - $x1) * $factor;
+                    $cp2y = $y2 - ($y2 - $y1) * $factor;
                 } else {
                     // Verwende den nächsten Punkt zur Berechnung
-                    $cp2x = $x2 - ($points[$i + 2][0] - $x1) / 3;
-                    $cp2y = $y2 - ($points[$i + 2][1] - $y1) / 3;
+                    $cp2x = $x2 - ($points[$i + 2][0] - $x1) * $factor;
+                    $cp2y = $y2 - ($points[$i + 2][1] - $y1) * $factor;
                 }
                 
                 // Füge die kubische Bézierkurve zum Pfad hinzu
@@ -460,10 +678,22 @@ class ChartLineChart {
         $borderColor = isset($seriesOptions['point']['borderColor']) ? $seriesOptions['point']['borderColor'] : '';
         $borderWidth = isset($seriesOptions['point']['borderWidth']) ? $seriesOptions['point']['borderWidth'] : 1;
         
+        // Prüfe, ob farbliche Punkte basierend auf Y-Werten verwendet werden sollen
+        $useColorThresholds = isset($seriesOptions['point']) && isset($seriesOptions['point']['useSeriesThresholds']) && 
+                             $seriesOptions['point']['useSeriesThresholds'] && 
+                             isset($seriesOptions['line']) && isset($seriesOptions['line']['colorThresholds']);
+        
         // Rendere jeden Punkt
         foreach ($points as $idx => $point) {
             $x = $point[0];
             $y = $point[1];
+            $yValue = isset($yValues[$idx]) ? $yValues[$idx] : null;
+            
+            // Bestimme die Punktfarbe
+            $color = $pointColor;
+            if ($useColorThresholds && $yValue !== null) {
+                $color = $this->getColorForValue($yValue, $seriesOptions['line']['colorThresholds'], $pointColor);
+            }
             
             switch ($pointShape) {
                 case 'circle':
@@ -472,7 +702,7 @@ class ChartLineChart {
                         $y,
                         $pointSize / 2,
                         [
-                            'fill' => $pointColor,
+                            'fill' => $color,
                             'stroke' => $borderColor,
                             'strokeWidth' => $borderWidth
                         ]
@@ -486,7 +716,7 @@ class ChartLineChart {
                         $pointSize,
                         $pointSize,
                         [
-                            'fill' => $pointColor,
+                            'fill' => $color,
                             'stroke' => $borderColor,
                             'strokeWidth' => $borderWidth
                         ]
@@ -503,7 +733,7 @@ class ChartLineChart {
                     $output .= $this->svg->createPolygon(
                         $points,
                         [
-                            'fill' => $pointColor,
+                            'fill' => $color,
                             'stroke' => $borderColor,
                             'strokeWidth' => $borderWidth
                         ]
@@ -521,7 +751,7 @@ class ChartLineChart {
                     $output .= $this->svg->createPolygon(
                         $points,
                         [
-                            'fill' => $pointColor,
+                            'fill' => $color,
                             'stroke' => $borderColor,
                             'strokeWidth' => $borderWidth
                         ]
@@ -535,7 +765,7 @@ class ChartLineChart {
                         $y,
                         $pointSize / 2,
                         [
-                            'fill' => $pointColor,
+                            'fill' => $color,
                             'stroke' => $borderColor,
                             'strokeWidth' => $borderWidth
                         ]
@@ -568,6 +798,11 @@ class ChartLineChart {
         $format = isset($seriesOptions['dataLabels']['format']) ? $seriesOptions['dataLabels']['format'] : '{y}';
         $rotation = isset($seriesOptions['dataLabels']['rotation']) ? $seriesOptions['dataLabels']['rotation'] : 0;
         
+        // Prüfe, ob farbliche Labels basierend auf Y-Werten verwendet werden sollen
+        $useColorThresholds = isset($seriesOptions['dataLabels']) && isset($seriesOptions['dataLabels']['useSeriesThresholds']) && 
+                             $seriesOptions['dataLabels']['useSeriesThresholds'] && 
+                             isset($seriesOptions['line']) && isset($seriesOptions['line']['colorThresholds']);
+        
         // Datenwertbeschriftungen rendern
         $validValues = array_filter($yValues, function($val) {
             return $val !== null && $val !== '' && is_numeric($val);
@@ -584,6 +819,12 @@ class ChartLineChart {
             $x = $point[0];
             $y = $point[1];
             
+            // Bestimme die Labelfarbe
+            $labelColor = $color;
+            if ($useColorThresholds) {
+                $labelColor = $this->getColorForValue($yValue, $seriesOptions['line']['colorThresholds'], $color);
+            }
+            
             // Formatierung des Labels
             $label = str_replace('{y}', $this->utils->formatNumber($yValue), $format);
             
@@ -596,7 +837,7 @@ class ChartLineChart {
                     'fontFamily' => $fontFamily,
                     'fontSize' => $fontSize,
                     'fontWeight' => $fontWeight,
-                    'fill' => $color,
+                    'fill' => $labelColor,
                     'textAnchor' => 'middle',
                     'rotate' => $rotation
                 ]

@@ -5,7 +5,7 @@
  * Diese Klasse ist für die Erstellung und Darstellung von Waterfall-Diagrammen zuständig,
  * einschließlich vertikaler und horizontaler Varianten.
  * 
- * @version 1.3
+ * @version 2.6
  */
 class ChartWaterfallChart {
     /**
@@ -42,8 +42,8 @@ class ChartWaterfallChart {
      * Rendert ein Waterfall-Diagramm
      * 
      * @param array $seriesGroup Gruppe von Waterfall-Diagramm-Serien
-     * @param array $xValues Array mit X-Werten (Kategorien)
-     * @param array $yValues Array mit Y-Werten (Werte)
+     * @param array $xValues Array mit X-Werten (Kategorien oder Werte)
+     * @param array $yValues Array mit Y-Werten (Werte oder Kategorien)
      * @param array $axes Achsendefinitionen
      * @param array $chartArea Daten zum Zeichenbereich
      * @param array $config Diagramm-Konfiguration
@@ -61,6 +61,9 @@ class ChartWaterfallChart {
         
         // Setze das Flag für horizontale Balken in der Achsenklasse
         $this->axes->setHorizontalBars($hasHorizontalWaterfall);
+        
+        // Initialisiere die Gradienten-Cache vor jeder Nutzung
+        $this->gradientCache = [];
         
         // Erstelle Gradienten für alle Serien, die diese benötigen
         $this->prepareGradients($seriesGroup, $hasHorizontalWaterfall);
@@ -116,10 +119,10 @@ class ChartWaterfallChart {
      */
     private function prepareGradients($seriesGroup, $horizontal = false) {
         foreach ($seriesGroup as $seriesName => $seriesOptions) {
-            // Sichere Serien-Name für Gradient-IDs
-            $safeSeriesName = preg_replace('/[^a-zA-Z0-9]/', '_', $seriesName);
-            
+            // Gradienten für die Hauptserie prüfen
             if (isset($seriesOptions['gradient']) && isset($seriesOptions['gradient']['enabled']) && $seriesOptions['gradient']['enabled']) {
+                // Generiere eine sichere ID ohne Leerzeichen oder ungültige Zeichen
+                $safeSeriesName = preg_replace('/[^a-zA-Z0-9]/', '_', $seriesName);
                 $gradientId = 'gradient_' . $safeSeriesName . '_' . $this->utils->generateId();
                 
                 // Speichere Gradientendefinition im Cache
@@ -127,25 +130,54 @@ class ChartWaterfallChart {
                     'id' => $gradientId,
                     'options' => $seriesOptions['gradient'],
                     'horizontal' => $horizontal,
-                    'color' => $seriesOptions['color']
+                    'color' => isset($seriesOptions['color']) ? $seriesOptions['color'] : '#000000'
                 ];
             }
             
-            // Für individuelle Balkenfarben auch Gradienten erstellen, wenn nötig
-            if (isset($seriesOptions['waterfall']) && isset($seriesOptions['waterfall']['colors'])) {
-                $colors = $seriesOptions['waterfall']['colors'];
-                foreach ($colors as $key => $colorOptions) {
-                    if (isset($colorOptions['gradient']) && isset($colorOptions['gradient']['enabled']) && $colorOptions['gradient']['enabled']) {
-                        $safeKey = preg_replace('/[^a-zA-Z0-9]/', '_', $key);
-                        $gradientId = 'gradient_' . $safeSeriesName . '_' . $safeKey . '_' . $this->utils->generateId();
+            // Nur fortfahren, wenn waterfall-Optionen vorhanden sind
+            if (!isset($seriesOptions['waterfall'])) continue;
+            
+            // Gradienten für individuelle Balkentypen prüfen (initial, positive, negative, total, subtotal)
+            $types = ['initial', 'positive', 'negative', 'total', 'subtotal'];
+            foreach ($types as $type) {
+                $colorKey = $type . 'Color';
+                $gradientKey = $type . 'Gradient';
+                
+                // Prüfen ob Gradient für diesen Typ definiert ist
+                if (isset($seriesOptions['waterfall'][$colorKey]) && 
+                    isset($seriesOptions['waterfall'][$gradientKey]) && 
+                    isset($seriesOptions['waterfall'][$gradientKey]['enabled']) && 
+                    $seriesOptions['waterfall'][$gradientKey]['enabled']) {
+                    
+                    $color = $seriesOptions['waterfall'][$colorKey];
+                    $safeSeriesName = preg_replace('/[^a-zA-Z0-9]/', '_', $seriesName);
+                    $gradientId = 'gradient_' . $safeSeriesName . '_' . $type . '_' . $this->utils->generateId();
+                    
+                    // Speichere Gradientendefinition im Cache
+                    $this->gradientCache[$seriesName . '_' . $type] = [
+                        'id' => $gradientId,
+                        'options' => $seriesOptions['waterfall'][$gradientKey],
+                        'horizontal' => $horizontal,
+                        'color' => $color
+                    ];
+                }
+            }
+            
+            // Individuelle Balkenfarben prüfen
+            if (isset($seriesOptions['waterfall']['colors']) && is_array($seriesOptions['waterfall']['colors'])) {
+                foreach ($seriesOptions['waterfall']['colors'] as $index => $colorData) {
+                    // Prüfen, ob der Eintrag ein Gradient hat
+                    if (isset($colorData['gradient']) && isset($colorData['gradient']['enabled']) && $colorData['gradient']['enabled']) {
+                        $safeSeriesName = preg_replace('/[^a-zA-Z0-9]/', '_', $seriesName);
+                        $gradientId = 'gradient_' . $safeSeriesName . '_bar_' . $index;
                         
                         // Speichere Gradientendefinition im Cache
-                        $colorCacheKey = $seriesName . '_' . $key;
-                        $this->gradientCache[$colorCacheKey] = [
+                        $cacheKey = $seriesName . '_bar_' . $index;
+                        $this->gradientCache[$cacheKey] = [
                             'id' => $gradientId,
-                            'options' => $colorOptions['gradient'],
+                            'options' => $colorData['gradient'],
                             'horizontal' => $horizontal,
-                            'color' => $colorOptions['color']
+                            'color' => isset($colorData['color']) ? $colorData['color'] : '#000000'
                         ];
                     }
                 }
@@ -243,18 +275,29 @@ class ChartWaterfallChart {
         $updatedSeriesGroup = $seriesGroup;
         
         foreach ($this->gradientCache as $key => $gradientInfo) {
-            // Prüfe, ob es sich um eine Serienfarbe oder eine spezifische Balkenfarbe handelt
-            if (strpos($key, '_') !== false) {
-                // Balkenfarbe: seriesName_key
-                list($seriesName, $colorKey) = explode('_', $key, 2);
+            // Prüfe verschiedene Schlüsseltypen
+            if (strpos($key, '_bar_') !== false) {
+                // Individueller Balken nach Index
+                list($seriesName, $rest) = explode('_bar_', $key);
+                $index = intval($rest); // Extrahiere den Index als Zahl
+                
                 if (isset($updatedSeriesGroup[$seriesName]) && 
                     isset($updatedSeriesGroup[$seriesName]['waterfall']) && 
                     isset($updatedSeriesGroup[$seriesName]['waterfall']['colors']) && 
-                    isset($updatedSeriesGroup[$seriesName]['waterfall']['colors'][$colorKey])) {
-                    $updatedSeriesGroup[$seriesName]['waterfall']['colors'][$colorKey]['gradientId'] = 'url(#' . $gradientInfo['id'] . ')';
+                    isset($updatedSeriesGroup[$seriesName]['waterfall']['colors'][$index])) {
+                    $updatedSeriesGroup[$seriesName]['waterfall']['colors'][$index]['gradientId'] = 'url(#' . $gradientInfo['id'] . ')';
+                }
+            } else if (strpos($key, '_') !== false) {
+                // Balkentyp (initial, positive, negative, total, subtotal)
+                list($seriesName, $type) = explode('_', $key);
+                
+                if (isset($updatedSeriesGroup[$seriesName]) && 
+                    isset($updatedSeriesGroup[$seriesName]['waterfall'])) {
+                    $typeKey = $type . 'GradientId';
+                    $updatedSeriesGroup[$seriesName]['waterfall'][$typeKey] = 'url(#' . $gradientInfo['id'] . ')';
                 }
             } else {
-                // Serienfarbe
+                // Hauptserien-Farbe
                 if (isset($updatedSeriesGroup[$key])) {
                     $updatedSeriesGroup[$key]['gradientId'] = 'url(#' . $gradientInfo['id'] . ')';
                 }
@@ -282,21 +325,27 @@ class ChartWaterfallChart {
         $xAxis = $axes['x'][$xAxisId];
         $yAxis = $axes['y'][$yAxisId];
         
-        // Hole die X- und Y-Werte für diese Serie
-        $seriesX = isset($xValues['default']) ? $xValues['default'] : [];
-        $seriesY = isset($yValues[$seriesName]) ? $yValues[$seriesName] : [];
-        
         // Standardfarben für Waterfall-Diagramm
         $defaultColors = [
+            'initial' => isset($seriesOptions['waterfall']['initialColor']) ? $seriesOptions['waterfall']['initialColor'] : '#1E88E5', // Blau
             'positive' => isset($seriesOptions['waterfall']['positiveColor']) ? $seriesOptions['waterfall']['positiveColor'] : '#4CAF50', // Grün
             'negative' => isset($seriesOptions['waterfall']['negativeColor']) ? $seriesOptions['waterfall']['negativeColor'] : '#F44336', // Rot
             'total' => isset($seriesOptions['waterfall']['totalColor']) ? $seriesOptions['waterfall']['totalColor'] : '#2196F3',        // Blau
             'subtotal' => isset($seriesOptions['waterfall']['subtotalColor']) ? $seriesOptions['waterfall']['subtotalColor'] : '#9C27B0' // Lila
         ];
         
-        // Bei individuellen Farben diese verwenden
-        $useIndividualColors = isset($seriesOptions['waterfall']['useIndividualColors']) ? 
-                               $seriesOptions['waterfall']['useIndividualColors'] : false;
+        // Gradient-IDs für Standardtypen
+        $gradientIds = [
+            'initial' => isset($seriesOptions['waterfall']['initialGradientId']) ? $seriesOptions['waterfall']['initialGradientId'] : null,
+            'positive' => isset($seriesOptions['waterfall']['positiveGradientId']) ? $seriesOptions['waterfall']['positiveGradientId'] : null,
+            'negative' => isset($seriesOptions['waterfall']['negativeGradientId']) ? $seriesOptions['waterfall']['negativeGradientId'] : null,
+            'total' => isset($seriesOptions['waterfall']['totalGradientId']) ? $seriesOptions['waterfall']['totalGradientId'] : null,
+            'subtotal' => isset($seriesOptions['waterfall']['subtotalGradientId']) ? $seriesOptions['waterfall']['subtotalGradientId'] : null
+        ];
+        
+        // Individuelle Balkenfarben
+        $individualColors = isset($seriesOptions['waterfall']['colors']) ? 
+                          $seriesOptions['waterfall']['colors'] : [];
         
         // Balkenbreite berechnen
         $barWidth = isset($seriesOptions['waterfall']['barWidth']) ? 
@@ -308,16 +357,12 @@ class ChartWaterfallChart {
                        $seriesOptions['waterfall']['cornerRadius'] : 0;
         
         // Berechne den initialen Wert und die Summe
-        $runningTotal = isset($seriesOptions['waterfall']['initialValue']) ? 
+        $initialValue = isset($seriesOptions['waterfall']['initialValue']) ? 
                        $seriesOptions['waterfall']['initialValue'] : 0;
         
         // Definiere Typen für Balken
         $barTypes = isset($seriesOptions['waterfall']['barTypes']) ? 
                    $seriesOptions['waterfall']['barTypes'] : [];
-        
-        // Individuelle Balkenfarben
-        $individualColors = isset($seriesOptions['waterfall']['colors']) ? 
-                          $seriesOptions['waterfall']['colors'] : [];
         
         // Finde die Y-Null-Position
         $zeroY = $this->axes->convertYValueToCoordinate(0, $yAxis, $chartArea);
@@ -326,6 +371,48 @@ class ChartWaterfallChart {
         $connectorPoints = [];
         $lastEndY = null;  // Letztwert für die Verbindungslinien
         $lastX = null;     // Letztwert X-Position
+        
+        // Für die automatische Subtotal-Berechnung
+        $runningTotal = $initialValue;
+        $subtotalValues = [];
+        
+        // Hole die X- und Y-Werte für diese Serie
+        $seriesX = isset($xValues[$seriesName]) ? $xValues[$seriesName] : (isset($xValues['default']) ? $xValues['default'] : []);
+        $seriesY = isset($yValues[$seriesName]) ? $yValues[$seriesName] : [];
+        
+        // Durchlauf für automatische Subtotal-Berechnung
+        for ($i = 0; $i < count($seriesY); $i++) {
+            $value = isset($seriesY[$i]) ? $seriesY[$i] : 0;
+            $barType = isset($barTypes[$i]) ? $barTypes[$i] : ($value > 0 ? 'positive' : ($value < 0 ? 'negative' : 'subtotal'));
+            
+            // Speichere aktuelle Werte für Subtotals und Totals
+            if ($barType === 'initial') {
+                $runningTotal = $value; // Setze den initialen Wert
+            } else if ($barType === 'subtotal') {
+                // Bei Subtotal: Wenn Wert 0 ist, berechne automatisch, sonst verwende den angegebenen Wert
+                if ($value === 0) {
+                    $subtotalValues[$i] = $runningTotal;
+                } else {
+                    // Bei explizitem Wert wird dieser unabhängig vom aktuellen runningTotal verwendet
+                    $subtotalValues[$i] = $value;
+                }
+                // Setze runningTotal auf den Subtotal-Wert für nachfolgende Berechnungen
+                $runningTotal = $subtotalValues[$i];
+            } else if ($barType === 'total') {
+                // Bei Total: Wenn Wert 0 ist, berechne automatisch, sonst verwende den angegebenen Wert
+                if ($value === 0) {
+                    $subtotalValues[$i] = $runningTotal;
+                } else {
+                    $subtotalValues[$i] = $value;
+                }
+            } else {
+                // Normale Balken (positive oder negative)
+                $runningTotal += $value;
+            }
+        }
+        
+        // Zurücksetzen für die tatsächliche Darstellung
+        $runningTotal = $initialValue;
         
         // Für jeden Datenpunkt
         for ($i = 0; $i < count($seriesY); $i++) {
@@ -342,52 +429,88 @@ class ChartWaterfallChart {
                 $barType = 'negative';
             }
             
+            // Behandle automatische Subtotal-Berechnung
+            if ($barType === 'subtotal') {
+                if ($value === 0) {
+                    $value = $subtotalValues[$i];
+                } else {
+                    // Wenn expliziter Wert angegeben wurde, überschreibe den berechneten Wert
+                    $subtotalValues[$i] = $value;
+                }
+            } else if ($barType === 'total') {
+                if ($value === 0) {
+                    $value = $subtotalValues[$i];
+                } else {
+                    // Wenn expliziter Wert angegeben wurde, überschreibe den berechneten Wert
+                    $subtotalValues[$i] = $value;
+                }
+            }
+            
             // Bestimme die Balkenfarbe basierend auf dem Typ
             $barColor = $defaultColors['positive']; // Standardfarbe
+            $fillColor = $barColor;
             
-            if ($useIndividualColors && isset($individualColors[$i])) {
+            // Prüfe erst auf individuelle Farben
+            if (isset($individualColors[$i])) {
                 // Verwende individuelle Farbe für diesen Balken
-                $barColor = isset($individualColors[$i]['gradientId']) ? 
-                           $individualColors[$i]['gradientId'] : 
-                           $individualColors[$i]['color'];
+                $barColor = isset($individualColors[$i]['color']) ? $individualColors[$i]['color'] : $barColor;
+                $fillColor = isset($individualColors[$i]['gradientId']) ? $individualColors[$i]['gradientId'] : $barColor;
             } else {
                 // Verwende die Standardfarben basierend auf dem Balkentyp
                 switch ($barType) {
+                    case 'initial':
+                        $barColor = $defaultColors['initial'];
+                        $fillColor = $gradientIds['initial'] ? $gradientIds['initial'] : $barColor;
+                        break;
                     case 'positive':
                         $barColor = $defaultColors['positive'];
+                        $fillColor = $gradientIds['positive'] ? $gradientIds['positive'] : $barColor;
                         break;
                     case 'negative':
                         $barColor = $defaultColors['negative'];
+                        $fillColor = $gradientIds['negative'] ? $gradientIds['negative'] : $barColor;
                         break;
                     case 'total':
                         $barColor = $defaultColors['total'];
+                        $fillColor = $gradientIds['total'] ? $gradientIds['total'] : $barColor;
                         break;
                     case 'subtotal':
                         $barColor = $defaultColors['subtotal'];
+                        $fillColor = $gradientIds['subtotal'] ? $gradientIds['subtotal'] : $barColor;
                         break;
                 }
             }
             
-            // X-Position des Balkens - WICHTIG: Hier den Index verwenden, nicht den Wert!
+            // X-Position des Balkens
             $x = $this->axes->convertXValueToCoordinate($i, $xAxis, $chartArea);
             $x = $x - $barWidth / 2; // Verschieben, damit der Balken zentriert ist
             
-            // Bei Subtotals und Totals Werte anzeigen
-            $displayValue = $value;
-            
-            // Bei Totals und Subtotals ist der Wert absolut, sonst relativ zur bisherigen Summe
-            $startValue = $runningTotal;
-            if ($barType === 'total' || $barType === 'subtotal') {
+            // Berechnung der Balken-Positionen und Label abhängig vom Typ
+            if ($barType === 'initial') {
+                // Initial-Balken: Start bei 0, Ende beim Initialwert
+                $startValue = 0;
                 $endValue = $value;
-                // Für Subtotals und Totals zeigen wir den tatsächlichen Wert an, nicht 0
-                $displayValue = $runningTotal;
+                $displayValue = $value;
+                
+                // Setze den Running Total auf den Initial-Wert
+                $runningTotal = $value;
+            } else if ($barType === 'total' || $barType === 'subtotal') {
+                // Für Totals und Subtotals: Balken starten bei 0
+                $startValue = 0;
+                $endValue = $value;
+                $displayValue = $value;
+                
+                // Bei Subtotal den Running Total für die folgenden Balken setzen
+                if ($barType === 'subtotal') {
+                    $runningTotal = $value;
+                }
             } else {
+                // Für normale Balken: Relativ zum laufenden Total
+                $startValue = $runningTotal;
                 $endValue = $runningTotal + $value;
                 $displayValue = $value;
-            }
-            
-            // Aktualisiere die laufende Summe, außer bei Totals und Subtotals
-            if ($barType !== 'total' && $barType !== 'subtotal') {
+                
+                // Aktualisiere running total nur für normale Balken
                 $runningTotal = $endValue;
             }
             
@@ -410,7 +533,7 @@ class ChartWaterfallChart {
                 $barWidth,
                 $barHeight,
                 [
-                    'fill' => $barColor,
+                    'fill' => $fillColor,
                     'fillOpacity' => isset($seriesOptions['fillOpacity']) ? $seriesOptions['fillOpacity'] : 1,
                     'rx' => $cornerRadius,
                     'ry' => $cornerRadius
@@ -419,7 +542,12 @@ class ChartWaterfallChart {
             
             // Verbindungslinien berechnen - auch für Subtotals und Totals
             if ($i > 0) {
-                $prevEndY = $this->axes->convertYValueToCoordinate($startValue, $yAxis, $chartArea);
+                // Wenn aktueller Balken subtotal/total ist, nehmen wir das Ende des vorherigen Balkens als Start
+                $prevEndY = $this->axes->convertYValueToCoordinate(
+                    ($barType === 'subtotal' || $barType === 'total') ? $runningTotal : $startValue, 
+                    $yAxis, 
+                    $chartArea
+                );
                 $prevX = $this->axes->convertXValueToCoordinate($i - 1, $xAxis, $chartArea);
                 $currentX = $this->axes->convertXValueToCoordinate($i, $xAxis, $chartArea);
                 
@@ -501,53 +629,136 @@ class ChartWaterfallChart {
         $xAxis = $axes['x'][$xAxisId];
         $yAxis = $axes['y'][$yAxisId];
         
-        // Hole die X- und Y-Werte für diese Serie
-        $seriesX = isset($xValues[$seriesName]) ? $xValues[$seriesName] : [];
-        $seriesY = isset($yValues['default']) ? $yValues['default'] : [];
+        // WICHTIG: Bei horizontalen Balken müssen wir die Werte anders behandeln!
+        // Die X-Achse zeigt numerische Werte, die Y-Achse zeigt Kategorien
+        
+        // X-Werte für die Serie (wird auf der X-Achse dargestellt)
+        $seriesValues = isset($xValues[$seriesName]) ? $xValues[$seriesName] : [];
+        
+        // Y-Werte für die Serie (Kategorien für die Y-Achse)
+        $categories = [];
+        
+        // Versuche zuerst, Kategorien aus der Y-Achsendefinition zu bekommen
+        if (isset($yAxis['categories']) && !empty($yAxis['categories'])) {
+            $categories = $yAxis['categories'];
+        } 
+        // Andernfalls versuche, Kategorien aus den yValues zu bekommen
+        else if (isset($yValues['default']) && !empty($yValues['default'])) {
+            $categories = $yValues['default'];
+        }
+        // Falls immer noch keine Kategorien vorhanden sind, erstelle Standardkategorien
+        else {
+            $count = count($seriesValues);
+            for ($i = 0; $i < $count; $i++) {
+                $categories[] = "Kategorie " . ($i + 1);
+            }
+        }
+        
+        // Stelle sicher, dass die Achsen richtig konfiguriert sind
+        if (!isset($yAxis['type']) || $yAxis['type'] !== 'category') {
+            $yAxis['type'] = 'category';
+            $yAxis['categories'] = $categories;
+        }
+        
+        if (!isset($xAxis['type']) || $xAxis['type'] !== 'numeric') {
+            $xAxis['type'] = 'numeric';
+        }
         
         // Standardfarben für Waterfall-Diagramm
         $defaultColors = [
+            'initial' => isset($seriesOptions['waterfall']['initialColor']) ? $seriesOptions['waterfall']['initialColor'] : '#1E88E5', // Blau
             'positive' => isset($seriesOptions['waterfall']['positiveColor']) ? $seriesOptions['waterfall']['positiveColor'] : '#4CAF50', // Grün
             'negative' => isset($seriesOptions['waterfall']['negativeColor']) ? $seriesOptions['waterfall']['negativeColor'] : '#F44336', // Rot
             'total' => isset($seriesOptions['waterfall']['totalColor']) ? $seriesOptions['waterfall']['totalColor'] : '#2196F3',        // Blau
             'subtotal' => isset($seriesOptions['waterfall']['subtotalColor']) ? $seriesOptions['waterfall']['subtotalColor'] : '#9C27B0' // Lila
         ];
         
-        // Bei individuellen Farben diese verwenden
-        $useIndividualColors = isset($seriesOptions['waterfall']['useIndividualColors']) ? 
-                             $seriesOptions['waterfall']['useIndividualColors'] : false;
+        // Gradient-IDs für Standardtypen
+        $gradientIds = [
+            'initial' => isset($seriesOptions['waterfall']['initialGradientId']) ? $seriesOptions['waterfall']['initialGradientId'] : null,
+            'positive' => isset($seriesOptions['waterfall']['positiveGradientId']) ? $seriesOptions['waterfall']['positiveGradientId'] : null,
+            'negative' => isset($seriesOptions['waterfall']['negativeGradientId']) ? $seriesOptions['waterfall']['negativeGradientId'] : null,
+            'total' => isset($seriesOptions['waterfall']['totalGradientId']) ? $seriesOptions['waterfall']['totalGradientId'] : null,
+            'subtotal' => isset($seriesOptions['waterfall']['subtotalGradientId']) ? $seriesOptions['waterfall']['subtotalGradientId'] : null
+        ];
+        
+        // Individuelle Balkenfarben
+        $individualColors = isset($seriesOptions['waterfall']['colors']) ? 
+                          $seriesOptions['waterfall']['colors'] : [];
         
         // Balkenhöhe berechnen
+        $categoryCount = count($categories);
+        $availableHeight = $chartArea['height'];
+        $categoryHeight = $availableHeight / max(1, $categoryCount);
         $barHeight = isset($seriesOptions['waterfall']['barHeight']) ? 
                     $seriesOptions['waterfall']['barHeight'] : 
-                    (isset($yAxis['categoryHeight']) ? $yAxis['categoryHeight'] * 0.8 : 40);
+                    ($categoryHeight * 0.8);
         
         // Eckenradius für Balken
         $cornerRadius = isset($seriesOptions['waterfall']['cornerRadius']) ? 
                       $seriesOptions['waterfall']['cornerRadius'] : 0;
         
         // Berechne den initialen Wert und die Summe
-        $runningTotal = isset($seriesOptions['waterfall']['initialValue']) ? 
+        $initialValue = isset($seriesOptions['waterfall']['initialValue']) ? 
                       $seriesOptions['waterfall']['initialValue'] : 0;
         
         // Definiere Typen für Balken
         $barTypes = isset($seriesOptions['waterfall']['barTypes']) ? 
                   $seriesOptions['waterfall']['barTypes'] : [];
         
-        // Individuelle Balkenfarben
-        $individualColors = isset($seriesOptions['waterfall']['colors']) ? 
-                          $seriesOptions['waterfall']['colors'] : [];
-        
         // Finde die X-Null-Position
         $zeroX = $this->axes->convertXValueToCoordinate(0, $xAxis, $chartArea);
+                      
+        // Array zur Verfolgung der tatsächlichen X-Positionen der Balken für korrekte Connectors
+        $endPositions = [];
         
         $output = '';
         $connectorPoints = [];
         
+        // Für automatische Subtotal-Berechnung
+        $runningTotal = $initialValue;
+        $subtotalValues = [];
+        
+        // Hole die Y-Werte (repräsentieren die Kategorien)
+        $seriesY = isset($yValues[$seriesName]) ? $yValues[$seriesName] : [];
+        
+        // Erster Durchlauf für automatische Subtotal-Berechnung
+        for ($i = 0; $i < count($seriesValues); $i++) {
+            $value = isset($seriesValues[$i]) ? $seriesValues[$i] : 0;
+            $barType = isset($barTypes[$i]) ? $barTypes[$i] : ($value > 0 ? 'positive' : ($value < 0 ? 'negative' : 'subtotal'));
+            
+            // Speichere aktuelle Werte für Subtotals
+            if ($barType === 'initial') {
+                $runningTotal = $value; // Setze den initialen Wert
+            } else if ($barType === 'subtotal') {
+                // Bei Subtotal: Wenn Wert 0 ist, berechne automatisch, sonst verwende den angegebenen Wert
+                if ($value === 0) {
+                    $subtotalValues[$i] = $runningTotal;
+                } else {
+                    $subtotalValues[$i] = $value;
+                }
+                // Setze runningTotal auf den Subtotal-Wert für nachfolgende Berechnungen
+                $runningTotal = $subtotalValues[$i];
+            } else if ($barType === 'total') {
+                // Bei Total: Wenn Wert 0 ist, berechne automatisch, sonst verwende den angegebenen Wert
+                if ($value === 0) {
+                    $subtotalValues[$i] = $runningTotal;
+                } else {
+                    $subtotalValues[$i] = $value;
+                }
+            } else {
+                // Normale Balken (positive oder negative)
+                $runningTotal += $value;
+            }
+        }
+        
+        // Zurücksetzen für die tatsächliche Darstellung
+        $runningTotal = $initialValue;
+        
         // Für jeden Datenpunkt
-        for ($i = 0; $i < count($seriesX); $i++) {
+        for ($i = 0; $i < count($seriesValues); $i++) {
             // Der aktuelle Wert
-            $value = isset($seriesX[$i]) ? $seriesX[$i] : 0;
+            $value = isset($seriesValues[$i]) ? $seriesValues[$i] : 0;
             
             // Bestimme den Balkentyp
             $barType = 'normal';
@@ -559,54 +770,94 @@ class ChartWaterfallChart {
                 $barType = 'negative';
             }
             
+            // Kategorie für diese Position
+            $category = isset($categories[$i]) ? $categories[$i] : "Kategorie " . ($i + 1);
+            
+            // Behandle automatische Subtotal-Berechnung
+            if ($barType === 'subtotal') {
+                if ($value === 0) {
+                    $value = $subtotalValues[$i];
+                }
+            } else if ($barType === 'total') {
+                if ($value === 0) {
+                    $value = $subtotalValues[$i];
+                }
+            }
+            
             // Bestimme die Balkenfarbe basierend auf dem Typ
             $barColor = $defaultColors['positive']; // Standardfarbe
+            $fillColor = $barColor;
             
-            if ($useIndividualColors && isset($individualColors[$i])) {
+            // Prüfe erst auf individuelle Farben
+            if (isset($individualColors[$i])) {
                 // Verwende individuelle Farbe für diesen Balken
-                $barColor = isset($individualColors[$i]['gradientId']) ? 
-                          $individualColors[$i]['gradientId'] : 
-                          $individualColors[$i]['color'];
+                $barColor = isset($individualColors[$i]['color']) ? $individualColors[$i]['color'] : $barColor;
+                $fillColor = isset($individualColors[$i]['gradientId']) ? $individualColors[$i]['gradientId'] : $barColor;
             } else {
                 // Verwende die Standardfarben basierend auf dem Balkentyp
                 switch ($barType) {
+                    case 'initial':
+                        $barColor = $defaultColors['initial'];
+                        $fillColor = $gradientIds['initial'] ? $gradientIds['initial'] : $barColor;
+                        break;
                     case 'positive':
                         $barColor = $defaultColors['positive'];
+                        $fillColor = $gradientIds['positive'] ? $gradientIds['positive'] : $barColor;
                         break;
                     case 'negative':
                         $barColor = $defaultColors['negative'];
+                        $fillColor = $gradientIds['negative'] ? $gradientIds['negative'] : $barColor;
                         break;
                     case 'total':
                         $barColor = $defaultColors['total'];
+                        $fillColor = $gradientIds['total'] ? $gradientIds['total'] : $barColor;
                         break;
                     case 'subtotal':
                         $barColor = $defaultColors['subtotal'];
+                        $fillColor = $gradientIds['subtotal'] ? $gradientIds['subtotal'] : $barColor;
                         break;
                 }
             }
             
-            // Y-Position des Balkens - WICHTIG: Hier den Index verwenden, nicht den Wert!
+            // Y-Position des Balkens (entspricht der Kategorie auf der Y-Achse)
             $y = $this->axes->convertYValueToCoordinate($i, $yAxis, $chartArea);
             $y = $y - $barHeight / 2; // Verschieben, damit der Balken zentriert ist
             
-            // Bei Subtotals und Totals Werte anzeigen
-            $displayValue = $value;
-            
-            // Bei Totals und Subtotals ist der Wert absolut, sonst relativ zur bisherigen Summe
-            $startValue = $runningTotal;
-            if ($barType === 'total' || $barType === 'subtotal') {
+            // Berechnung der Balken-Positionen und Label abhängig vom Typ
+            if ($barType === 'initial') {
+                // Initial-Balken: Start bei 0, Ende beim Initialwert
+                $startValue = 0;
                 $endValue = $value;
-                // Für Subtotals und Totals zeigen wir den tatsächlichen Wert an, nicht 0
-                $displayValue = $runningTotal;
+                $displayValue = $value;
+                
+                // Setze den Running Total auf den Initial-Wert
+                $runningTotal = $value;
+            } else if ($barType === 'total' || $barType === 'subtotal') {
+                // Für Totals und Subtotals: Balken starten bei 0
+                $startValue = 0;
+                $endValue = $value;
+                $displayValue = $value;
+                
+                // Bei Subtotal den Running Total für die folgenden Balken setzen
+                if ($barType === 'subtotal') {
+                    $runningTotal = $value;
+                }
             } else {
+                // Für normale Balken: Relativ zum laufenden Total
+                $startValue = $runningTotal;
                 $endValue = $runningTotal + $value;
                 $displayValue = $value;
-            }
-            
-            // Aktualisiere die laufende Summe, außer bei Totals und Subtotals
-            if ($barType !== 'total' && $barType !== 'subtotal') {
+                
+                // Aktualisiere running total nur für normale Balken
                 $runningTotal = $endValue;
             }
+            
+            // Speichere die Werte für Connector-Berechnung
+            $endPositions[$i] = [
+                'startValue' => $startValue,
+                'endValue' => $endValue,
+                'type' => $barType
+            ];
             
             // X-Positionen berechnen
             $x1 = $this->axes->convertXValueToCoordinate($startValue, $xAxis, $chartArea);
@@ -623,26 +874,14 @@ class ChartWaterfallChart {
                 $barWidth,
                 $barHeight,
                 [
-                    'fill' => $barColor,
+                    'fill' => $fillColor,
                     'fillOpacity' => isset($seriesOptions['fillOpacity']) ? $seriesOptions['fillOpacity'] : 1,
                     'rx' => $cornerRadius,
                     'ry' => $cornerRadius
                 ]
             );
             
-            // Verbindungslinien berechnen - auch für Subtotals und Totals
-            if ($i > 0) {
-                $prevEndX = $this->axes->convertXValueToCoordinate($startValue, $xAxis, $chartArea);
-                $prevY = $this->axes->convertYValueToCoordinate($i - 1, $yAxis, $chartArea);
-                $currentY = $this->axes->convertYValueToCoordinate($i, $yAxis, $chartArea);
-                
-                $connectorPoints[] = [
-                    'x1' => $prevEndX,
-                    'y1' => $prevY + $barHeight / 2, // Mitte des vorherigen Balkens
-                    'x2' => $prevEndX,
-                    'y2' => $currentY - $barHeight / 2 // Mitte des aktuellen Balkens
-                ];
-            }
+            // Verbindungslinien-Berechnung erfolgt nach der Balken-Erstellung
             
             // Datenwertbeschriftung rendern, falls aktiviert
             if (isset($seriesOptions['dataLabels']) && isset($seriesOptions['dataLabels']['enabled']) && $seriesOptions['dataLabels']['enabled']) {
@@ -667,6 +906,34 @@ class ChartWaterfallChart {
                     ]
                 );
             }
+        }
+        
+        // Berechne die Connector-Punkte nachträglich
+        for ($i = 1; $i < count($seriesValues); $i++) {
+            $prevEndPos = $endPositions[$i-1];
+            $currPos = $endPositions[$i];
+            
+            // X-Position des Start-Connectors: Der Endwert des vorherigen Balkens
+            $prevX = $this->axes->convertXValueToCoordinate($prevEndPos['endValue'], $xAxis, $chartArea);
+            
+            // X-Position des End-Connectors
+            $currX = $this->axes->convertXValueToCoordinate(
+                ($currPos['type'] === 'total' || $currPos['type'] === 'subtotal') 
+                    ? $prevEndPos['endValue']  // Bei Subtotal/Total vom vorherigen Balkenende verbinden
+                    : $currPos['startValue'],  // Bei normalen Balken zum Startpunkt
+                $xAxis, 
+                $chartArea
+            );
+            
+            $prevY = $this->axes->convertYValueToCoordinate($i - 1, $yAxis, $chartArea);
+            $currY = $this->axes->convertYValueToCoordinate($i, $yAxis, $chartArea);
+            
+            $connectorPoints[] = [
+                'x1' => $prevX,
+                'y1' => $prevY + $barHeight / 2, // Mitte des vorherigen Balkens
+                'x2' => $currX,
+                'y2' => $currY - $barHeight / 2  // Mitte des aktuellen Balkens
+            ];
         }
         
         // Konnektoren (Verbindungslinien) rendern, falls aktiviert
