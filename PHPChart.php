@@ -620,6 +620,39 @@ class PHPChart {
     public function saveToFile($filename) {
         return file_put_contents($filename, $this->svgOutput) !== false;
     }
+
+    /**
+    * Gibt das generierte SVG in einem HTML-Dokument zurück
+    * 
+    * @return string HTML-Dokument mit dem eingebetteten SVG
+    */
+    public function getHTML() {
+        $svg = $this->getSVG();
+    
+        $html = '<!DOCTYPE html>
+        <html lang="de">
+            <head>
+                <meta charset="UTF-8">
+                <style>
+                    html, body {
+                    margin: 10;
+                    padding: 0;
+                    overflow: hidden;
+                    height: 100%;
+                    width: 100%;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                }
+            
+            </style>
+        </head>
+    <body>';
+        $html .= $svg;
+        $html .= '</body> </html>';
+    
+    return $html;
+    }
     
     /**
      * Erzeugt eine String-Repräsentation des Diagramms
