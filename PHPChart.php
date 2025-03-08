@@ -5,8 +5,8 @@
  * Diese Klasse ermöglicht die Erstellung verschiedener Diagrammtypen mit
  * anpassbaren Optionen für Darstellung, Achsen, Legenden und mehr.
  * 
- * 
- * @version 1.20
+ * @author Claude
+ * @version 1.22
  */
 
 // Einbinden der benötigten Klassendateien
@@ -24,6 +24,8 @@ include_once('chart.class.waterfall.php');
 include_once('chart.class.bubble.php');
 include_once('chart.class.radar.php');
 include_once('chart.class.multipie.php');
+include_once('chart.class.sankey.php');
+include_once('chart.class.boolean.php');
 include_once('chart.class.legend.php');
 
 class PHPChart {
@@ -98,6 +100,16 @@ class PHPChart {
     private $hasMultiPieCharts = false;
     
     /**
+     * @var bool Flag für Sankey-Diagramme
+     */
+    private $hasSankeyCharts = false;
+    
+    /**
+     * @var bool Flag für Boolean-Diagramme
+     */
+    private $hasBooleanCharts = false;
+    
+    /**
      * Konstruktor - Initialisiert die Basiskomponenten des Diagramms
      * 
      * @param array $config Optionale Konfigurationsparameter
@@ -166,6 +178,16 @@ class PHPChart {
             $this->hasMultiPieCharts = true;
             // Multi-Pie/Donut Charts werden wie Pie-Charts behandelt (keine Achsen)
             $this->hasPieCharts = true;
+        }
+        
+        // Prüfen, ob es sich um Sankey-Diagramme handelt
+        if (isset($seriesOptions['type']) && ($seriesOptions['type'] === 'sankey')) {
+            $this->hasSankeyCharts = true;
+        }
+        
+        // Prüfen, ob es sich um Boolean-Diagramme handelt
+        if (isset($seriesOptions['type']) && ($seriesOptions['type'] === 'boolean')) {
+            $this->hasBooleanCharts = true;
         }
         
         // Serie mit Optionen hinzufügen
@@ -238,8 +260,10 @@ class PHPChart {
         // Berechne das nutzbare Zeichengebiet nach Abzug der Ränder
         $chartArea = $this->calculateChartArea();
         
-        // Für nicht-Pie/MultiPie-Charts: Achsen vorbereiten und rendern
-        if (!$this->hasPieChartsOnly()) {
+        // Für Diagrammtypen ohne Achsen: Achsen ausblenden
+        $showAxes = !$this->hasPieChartsOnly() && !$this->hasSankeyChartsOnly() && !$this->hasBooleanChartsOnly();
+        
+        if ($showAxes) {
             // Wenn keine Achsen definiert wurden, Standardachsen erstellen
             if (empty($this->axes['x'])) {
                 $this->addXAxis();
@@ -254,7 +278,7 @@ class PHPChart {
             // Rendere den Hintergrund und das Gitter
             $this->renderBackground($chartArea);
         } else {
-            // Für reine Pie/MultiPie-Charts nur den Hintergrund rendern ohne Gitter
+            // Für Diagrammtypen ohne Achsen nur den Hintergrund rendern ohne Gitter
             if ($this->config['background']['enabled']) {
                 $this->svgOutput .= $this->chartSVG->createRect(
                     0, 0, $this->config['width'], $this->config['height'],
@@ -289,8 +313,8 @@ class PHPChart {
         // Rendere die Datenreihen basierend auf ihrem Typ
         $this->renderSeries($chartArea);
         
-        // Rendere die Achsen nur für nicht-Pie/MultiPie-Charts
-        if (!$this->hasPieChartsOnly()) {
+        // Rendere die Achsen nur wenn nötig
+        if ($showAxes) {
             $this->renderAxes();
         }
         
@@ -319,6 +343,44 @@ class PHPChart {
             if (isset($seriesOptions['type']) && 
                 $seriesOptions['type'] !== 'pie' && 
                 $seriesOptions['type'] !== 'multipie') {
+                return false;
+            }
+        }
+        
+        return true;
+    }
+    
+    /**
+     * Überprüft, ob das Diagramm nur aus Sankey-Diagrammen besteht
+     * 
+     * @return bool True, wenn nur Sankey-Diagramme vorhanden sind
+     */
+    private function hasSankeyChartsOnly() {
+        if (!$this->hasSankeyCharts) {
+            return false;
+        }
+        
+        foreach ($this->series as $seriesOptions) {
+            if (isset($seriesOptions['type']) && $seriesOptions['type'] !== 'sankey') {
+                return false;
+            }
+        }
+        
+        return true;
+    }
+    
+    /**
+     * Überprüft, ob das Diagramm nur aus Boolean-Diagrammen besteht
+     * 
+     * @return bool True, wenn nur Boolean-Diagramme vorhanden sind
+     */
+    private function hasBooleanChartsOnly() {
+        if (!$this->hasBooleanCharts) {
+            return false;
+        }
+        
+        foreach ($this->series as $seriesOptions) {
+            if (isset($seriesOptions['type']) && $seriesOptions['type'] !== 'boolean') {
                 return false;
             }
         }
@@ -559,6 +621,50 @@ class PHPChart {
                     );
                     break;
                 
+                case 'sankey':
+                    // Für Sankey-Diagramme den gesamten verfügbaren Platz nutzen
+                    $sankeyChartArea = $this->hasSankeyChartsOnly() 
+                        ? [
+                            'x' => $this->config['margin']['left'],
+                            'y' => $this->config['margin']['top'],
+                            'width' => $this->config['width'] - $this->config['margin']['left'] - $this->config['margin']['right'],
+                            'height' => $this->config['height'] - $this->config['margin']['top'] - $this->config['margin']['bottom']
+                          ]
+                        : $chartArea;
+                    
+                    $sankeyChart = new ChartSankeyChart();
+                    $this->svgOutput .= $sankeyChart->render(
+                        $seriesGroup,
+                        $this->xValues,
+                        $this->yValues,
+                        null,  // Keine Achsen für Sankey-Diagramme
+                        $sankeyChartArea,
+                        $this->config
+                    );
+                    break;
+                
+                case 'boolean':
+                    // Für Boolean-Diagramme den gesamten verfügbaren Platz nutzen
+                    $booleanChartArea = $this->hasBooleanChartsOnly() 
+                        ? [
+                            'x' => $this->config['margin']['left'],
+                            'y' => $this->config['margin']['top'],
+                            'width' => $this->config['width'] - $this->config['margin']['left'] - $this->config['margin']['right'],
+                            'height' => $this->config['height'] - $this->config['margin']['top'] - $this->config['margin']['bottom']
+                          ]
+                        : $chartArea;
+                    
+                    $booleanChart = new ChartBooleanChart();
+                    $this->svgOutput .= $booleanChart->render(
+                        $seriesGroup,
+                        $this->xValues,
+                        $this->yValues,
+                        null,  // Keine Achsen für Boolean-Diagramme
+                        $booleanChartArea,
+                        $this->config
+                    );
+                    break;
+                
                 default:
                     // Unbekannter Chart-Typ - ignorieren oder Fehler werfen
                     break;
@@ -622,10 +728,10 @@ class PHPChart {
     }
 
     /**
-    * Gibt das generierte SVG in einem HTML-Dokument zurück
-    * 
-    * @return string HTML-Dokument mit dem eingebetteten SVG
-    */
+     * Gibt das generierte SVG in einem HTML-Dokument zurück
+     * 
+     * @return string HTML-Dokument mit dem eingebetteten SVG
+     */
     public function getHTML() {
         $svg = $this->getSVG();
     

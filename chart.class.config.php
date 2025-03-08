@@ -5,7 +5,7 @@
  * Diese Klasse verwaltet alle Konfigurationsoptionen und Standardwerte
  * für das Diagramm, Achsen, Serien und andere Elemente.
  * 
- * @version 2.0
+ * @version 2.2
  */
 class ChartConfig {
     /**
@@ -112,6 +112,51 @@ class ChartConfig {
             'lineColor' => '#999999', // Farbe der Verbindungslinien
             'lineWidth' => 1,       // Breite der Verbindungslinien
             'lineDashArray' => ''   // Strichmuster der Verbindungslinien
+        ],
+        'sankey' => [              // Standardeinstellungen für Sankey-Diagramme
+            'nodePadding' => 10,    // Abstand zwischen Knoten
+            'levelPadding' => 50,   // Abstand zwischen Ebenen
+            'minNodeHeight' => 5,   // Mindesthöhe eines Knotens
+            'maxNodeHeight' => 50,  // Maximale Höhe eines Knotens
+            'nodeOpacity' => 0.8,   // Deckkraft der Knoten
+            'linkOpacity' => 0.4,   // Deckkraft der Verbindungen
+            'cornerRadius' => 3,    // Eckenabrundung der Knoten
+            'curvature' => 0.5,     // Kurvenstärke der Verbindungen (0-1)
+            'nodeColor' => '#1f77b4', // Standardfarbe für Knoten
+            'linkColor' => '#999999', // Standardfarbe für Verbindungen
+            'nodeStrokeColor' => '#ffffff', // Rahmenfarbe der Knoten
+            'nodeStrokeWidth' => 1, // Rahmenbreite der Knoten
+            'nodeLabels' => [      // Knotenbeschriftungen
+                'enabled' => true,
+                'position' => 'inside', // inside, left, right
+                'color' => '#333333',
+                'fontSize' => 12,
+                'fontFamily' => 'Arial, Helvetica, sans-serif',
+                'fontWeight' => 'normal'
+            ],
+            'linkLabels' => [      // Verbindungsbeschriftungen
+                'enabled' => false,
+                'color' => '#333333',
+                'fontSize' => 10,
+                'fontFamily' => 'Arial, Helvetica, sans-serif',
+                'fontWeight' => 'normal',
+                'format' => '{value}' // Format für den Wert
+            ]
+        ],
+        'boolean' => [             // Standardeinstellungen für Boolean-Diagramme
+            'horizontal' => true,   // Horizontale oder vertikale Ausrichtung
+            'barHeight' => 30,      // Höhe des horizontalen Balkens (oder Breite des vertikalen Balkens)
+            'barWidth' => null,     // Breite des horizontalen Balkens (oder Höhe des vertikalen Balkens), null = automatisch
+            'barMargin' => 10,      // Abstand zwischen mehreren Balken
+            'trueColor' => '#4CAF50', // Farbe für TRUE (1) Werte
+            'falseColor' => '#F44336', // Farbe für FALSE (0) Werte
+            'showLabel' => false,   // Label für den Balken anzeigen
+            'label' => '',          // Text für das Label
+            'labelPosition' => 'left', // Position des Labels (left, right für horizontale Balken; top, bottom für vertikale)
+            'labelFont' => 'Arial, Helvetica, sans-serif',
+            'labelFontSize' => 12,
+            'labelFontWeight' => 'normal',
+            'labelColor' => '#333333'
         ]
     ];
     
@@ -121,7 +166,7 @@ class ChartConfig {
      * @var array
      */
     private $defaultSeriesOptions = [
-        'type' => 'bar',            // Chart-Typ: bar, line, spline, area, pie, multipie, radar, polar, scatter, etc.
+        'type' => 'bar',            // Chart-Typ: bar, line, spline, area, pie, multipie, radar, polar, scatter, sankey, boolean, etc.
         'xAxisId' => 0,             // ID der zu verwendenden X-Achse
         'yAxisId' => 0,             // ID der zu verwendenden Y-Achse
         'color' => '',              // Farbe (automatisch, wenn leer)
@@ -252,6 +297,60 @@ class ChartConfig {
             'points' => [],         // Individuelle Punkt-Definitionen
             'minPointSize' => 3,    // Minimale Punktgröße
             'maxPointSize' => 15    // Maximale Punktgröße
+        ],
+        
+        // Spezifische Optionen für Sankey-Diagramme
+        'sankey' => [
+            'nodes' => [],           // Array von Knoten ({id, name, color})
+            'links' => [],           // Array von Verbindungen ({source, target, value, color})
+            'nodePadding' => 10,     // Abstand zwischen Knoten
+            'levelPadding' => 50,    // Abstand zwischen Ebenen
+            'minNodeHeight' => 5,    // Mindesthöhe eines Knotens
+            'maxNodeHeight' => 50,   // Maximale Höhe eines Knotens
+            'nodeOpacity' => 0.8,    // Deckkraft der Knoten
+            'linkOpacity' => 0.4,    // Deckkraft der Verbindungen
+            'cornerRadius' => 3,     // Eckenabrundung der Knoten
+            'curvature' => 0.5,      // Kurvenstärke der Verbindungen (0-1)
+            'nodeColor' => '#1f77b4', // Standardfarbe für Knoten
+            'linkColor' => '#999999', // Standardfarbe für Verbindungen
+            'nodeColors' => [],       // Spezifische Farben für Knoten {nodeId: color}
+            'linkColors' => [],       // Spezifische Farben für Verbindungen {sourceId->targetId: color}
+            'nodeStrokeColor' => '#ffffff', // Rahmenfarbe der Knoten
+            'nodeStrokeWidth' => 1,  // Rahmenbreite der Knoten
+            'nodeLabels' => [        // Knotenbeschriftungen
+                'enabled' => true,
+                'position' => 'inside', // inside, left, right
+                'color' => '#333333',
+                'fontSize' => 12,
+                'fontFamily' => 'Arial, Helvetica, sans-serif',
+                'fontWeight' => 'normal'
+            ],
+            'linkLabels' => [        // Verbindungsbeschriftungen
+                'enabled' => false,
+                'color' => '#333333',
+                'fontSize' => 10,
+                'fontFamily' => 'Arial, Helvetica, sans-serif',
+                'fontWeight' => 'normal',
+                'format' => '{value}' // Format für den Wert
+            ]
+        ],
+        
+        // Spezifische Optionen für Boolean-Diagramme
+        'boolean' => [
+            'horizontal' => true,    // Horizontale oder vertikale Ausrichtung
+            'barHeight' => 30,       // Höhe des horizontalen Balkens (oder Breite des vertikalen Balkens)
+            'barWidth' => null,      // Breite des horizontalen Balkens (oder Höhe des vertikalen Balkens), null = automatisch
+            'barMargin' => 10,       // Abstand zwischen mehreren Balken
+            'position' => 0,         // Position des Balkens (bei mehreren Balken)
+            'trueColor' => '#4CAF50', // Farbe für TRUE (1) Werte
+            'falseColor' => '#F44336', // Farbe für FALSE (0) Werte
+            'showLabel' => false,    // Label für den Balken anzeigen
+            'label' => '',           // Text für das Label
+            'labelPosition' => 'left', // Position des Labels (left, right für horizontale Balken; top, bottom für vertikale)
+            'labelFont' => 'Arial, Helvetica, sans-serif',
+            'labelFontSize' => 12,
+            'labelFontWeight' => 'normal',
+            'labelColor' => '#333333'
         ]
     ];
     
