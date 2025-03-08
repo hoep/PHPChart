@@ -18,6 +18,8 @@
   - [Polar-Charts](#polar-charts)
   - [Radar-Charts](#radar-charts)
   - [Waterfall-Charts](#waterfall-charts)
+  - [Sankey-Diagramme](#sankey-diagramme)
+  - [Boolean-Charts](#boolean-charts)
 - [Fortgeschrittene Funktionen](#fortgeschrittene-funktionen)
 
 ## Einleitung
@@ -555,6 +557,171 @@ Optionen für Waterfall-Charts:
 - `waterfall.*Color`: Farben für verschiedene Balkentypen
 - `waterfall.connectors`: Konfiguration der Verbindungslinien
 - `waterfall.horizontal`: `true` für horizontale Darstellung
+
+### Sankey-Diagramme
+
+Sankey-Diagramme visualisieren Flüsse zwischen verschiedenen Knoten, wobei die Breite des Flusses proportional zur Menge ist. Dies eignet sich besonders für die Darstellung von Flüssen wie Energieübertragung, Materialfluss, Geldtransfer oder Migrationsbewegungen.
+
+```php
+// Sankey-Diagramm mit expliziten Knoten und Links
+$chart->addXValues([], 'energiefluss');
+$chart->addYValues([], 'energiefluss', [
+    'type' => 'sankey',
+    'sankey' => [
+        'nodes' => [
+            ['id' => 'Solarenergie', 'name' => 'Solarenergie'],
+            ['id' => 'Windenergie', 'name' => 'Windenergie'],
+            ['id' => 'Stromversorgung', 'name' => 'Stromversorgung'],
+            ['id' => 'Haushalt', 'name' => 'Haushalt'],
+            ['id' => 'Industrie', 'name' => 'Industrie'],
+            ['id' => 'Transport', 'name' => 'Transport']
+        ],
+        'links' => [
+            ['source' => 'Solarenergie', 'target' => 'Stromversorgung', 'value' => 45],
+            ['source' => 'Windenergie', 'target' => 'Stromversorgung', 'value' => 35],
+            ['source' => 'Stromversorgung', 'target' => 'Haushalt', 'value' => 30],
+            ['source' => 'Stromversorgung', 'target' => 'Industrie', 'value' => 35],
+            ['source' => 'Stromversorgung', 'target' => 'Transport', 'value' => 15]
+        ],
+        'nodeColors' => [
+            'Solarenergie' => '#FFD700',     // Gold
+            'Windenergie' => '#87CEEB',      // SkyBlue
+            'Stromversorgung' => '#32CD32',  // LimeGreen
+            'Haushalt' => '#FF6347',         // Tomato
+            'Industrie' => '#8A2BE2',        // BlueViolet
+            'Transport' => '#20B2AA'         // LightSeaGreen
+        ],
+        'nodePadding' => 15,         // Abstand zwischen Knoten
+        'levelPadding' => 70,        // Abstand zwischen Ebenen
+        'nodeOpacity' => 0.9,        // Deckkraft der Knoten
+        'linkOpacity' => 0.5,        // Deckkraft der Verbindungen
+        'curvature' => 0.6           // Krümmung der Verbindungen
+    ]
+]);
+
+// Sankey-Diagramm mit einfachem Format (Quelle->Ziel)
+$xValues = [
+    'Produktion->Zentrallager',
+    'Produktion->Regionallager',
+    'Zentrallager->Großhandel',
+    'Zentrallager->Einzelhandel'
+];
+$yValues = [800, 400, 300, 350];
+
+$chart->addXValues($xValues, 'logistik');
+$chart->addYValues($yValues, 'logistik', [
+    'type' => 'sankey',
+    'sankey' => [
+        'nodeOpacity' => 0.8,
+        'linkOpacity' => 0.6,
+        'cornerRadius' => 6
+    ],
+    'gradient' => [
+        'enabled' => true,
+        'type' => 'linear',
+        'angle' => 0,
+        'colors' => ['#6699cc', '#4477aa']
+    ]
+]);
+```
+
+Optionen für Sankey-Diagramme:
+- `sankey.nodes`: Array mit Knotendefinitionen `[{id, name, color}]`
+- `sankey.links`: Array mit Verbindungsdefinitionen `[{source, target, value, color}]`
+- `sankey.nodeColors`: Objekt mit Farbzuweisungen für Knoten `{nodeId: color}`
+- `sankey.linkColors`: Objekt mit Farbzuweisungen für Verbindungen `{sourceId->targetId: color}`
+- `sankey.nodePadding`: Abstand zwischen Knoten
+- `sankey.levelPadding`: Abstand zwischen Ebenen
+- `sankey.minNodeHeight`: Mindesthöhe eines Knotens
+- `sankey.maxNodeHeight`: Maximale Höhe eines Knotens
+- `sankey.nodeOpacity`: Deckkraft der Knoten (0-1)
+- `sankey.linkOpacity`: Deckkraft der Verbindungen (0-1)
+- `sankey.cornerRadius`: Eckenradius der Knoten
+- `sankey.curvature`: Kurvenstärke der Verbindungen (0-1)
+- `sankey.nodeLabels`: Konfiguration der Knotenbeschriftungen
+- `sankey.linkLabels`: Konfiguration der Verbindungsbeschriftungen
+- `gradient`: Gradienten können auf Links angewendet werden
+
+### Boolean-Charts
+
+Boolean-Charts visualisieren Zeitreihen von booleschen Werten (wahr/falsch, 1/0) als farbige Balken, wobei verschiedene Farben den True/False-Zustand repräsentieren. Dies eignet sich besonders für Verfügbarkeits- oder Statusanzeigen von Geräten, Diensten oder Prozessen.
+
+```php
+// Einfacher horizontaler Boolean-Chart
+$timestamps = [
+    time() - 86400,            // 24 Stunden zurück
+    time() - 43200,            // 12 Stunden zurück - Status ändert sich
+    time() - 36000,            // 10 Stunden zurück - Status ändert sich wieder
+    time()                     // Aktueller Zeitpunkt
+];
+$status = [true, false, true, true];
+
+$chart->addXValues($timestamps, 'server');
+$chart->addYValues($status, 'server', [
+    'type' => 'boolean',
+    'boolean' => [
+        'horizontal' => true,      // Horizontaler Balken
+        'barHeight' => 40,         // Höhe des Balkens
+        'trueColor' => '#4CAF50',  // Grün für TRUE
+        'falseColor' => '#F44336', // Rot für FALSE
+        'showLabel' => true,
+        'label' => 'Server Status',
+        'labelPosition' => 'left'
+    ]
+]);
+
+// Multi-Boolean-Chart (mehrere Statusbalken)
+$chart->addXValues($timestamps1, 'database');
+$chart->addYValues($status1, 'database', [
+    'type' => 'boolean',
+    'boolean' => [
+        'position' => 0,           // Position des ersten Balkens
+        'barHeight' => 30,
+        'trueColor' => '#3F51B5',  // Indigo
+        'label' => 'Datenbank'
+    ]
+]);
+
+$chart->addXValues($timestamps2, 'webserver');
+$chart->addYValues($status2, 'webserver', [
+    'type' => 'boolean',
+    'boolean' => [
+        'position' => 1,           // Position des zweiten Balkens
+        'barHeight' => 30,
+        'barMargin' => 15,         // Abstand zwischen Balken
+        'trueColor' => '#009688',  // Teal
+        'label' => 'Webserver'
+    ]
+]);
+
+// Vertikaler Boolean-Chart
+$chart->addXValues($weekTimestamps, 'produktionslinie');
+$chart->addYValues($weekStatus, 'produktionslinie', [
+    'type' => 'boolean',
+    'boolean' => [
+        'horizontal' => false,     // Vertikaler Balken
+        'barWidth' => 40,          // Breite des vertikalen Balkens
+        'trueColor' => '#4CAF50',
+        'falseColor' => '#F44336',
+        'showLabel' => true,
+        'label' => 'Produktion',
+        'labelPosition' => 'bottom'
+    ]
+]);
+```
+
+Optionen für Boolean-Charts:
+- `boolean.horizontal`: `true` für horizontalen Balken, `false` für vertikalen Balken
+- `boolean.barHeight`: Höhe des horizontalen Balkens
+- `boolean.barWidth`: Breite des horizontalen Balkens (oder Höhe bei vertikalem Balken)
+- `boolean.barMargin`: Abstand zwischen mehreren Balken
+- `boolean.position`: Position bei mehreren Balken (0, 1, 2, ...)
+- `boolean.trueColor`: Farbe für TRUE/1-Werte
+- `boolean.falseColor`: Farbe für FALSE/0-Werte
+- `boolean.showLabel`: `true` um Beschriftung anzuzeigen
+- `boolean.label`: Text der Beschriftung
+- `boolean.labelPosition`: Position der Beschriftung (left, right, top, bottom)
+- `boolean.labelFont`, `labelFontSize`, `labelFontWeight`, `labelColor`: Formatierung der Beschriftung
 
 ## Fortgeschrittene Funktionen
 
